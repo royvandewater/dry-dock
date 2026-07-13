@@ -90,6 +90,21 @@ func (w *gitWorld) iReadTheCommitFor(subject string) error {
 	return nil
 }
 
+func (w *gitWorld) iCheckoutCommit(subject string) error {
+	return Checkout(w.dir, w.shaBySubj[subject])
+}
+
+func (w *gitWorld) headIsAtCommit(subject string) error {
+	head, err := w.run("rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	if got := head[:40]; got != w.shaBySubj[subject] {
+		return fmt.Errorf("expected HEAD at %q, got %q", w.shaBySubj[subject], got)
+	}
+	return nil
+}
+
 func (w *gitWorld) thereAreVersions(n int) error {
 	if len(w.versions) != n {
 		return fmt.Errorf("expected %d versions, got %d", n, len(w.versions))
@@ -156,6 +171,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a repo with commits on "([^"]*)": "([^"]*)"$`, w.aRepoWithCommits)
 	sc.Step(`^I log between commit "([^"]*)" and "([^"]*)"$`, w.iLogBetween)
 	sc.Step(`^I read the commit for "([^"]*)"$`, w.iReadTheCommitFor)
+	sc.Step(`^I checkout commit "([^"]*)"$`, w.iCheckoutCommit)
+	sc.Step(`^HEAD is at commit "([^"]*)"$`, w.headIsAtCommit)
 	sc.Step(`^there are (\d+) versions$`, w.thereAreVersions)
 	sc.Step(`^the version subjects are "([^"]*)"$`, w.theVersionSubjectsAre)
 	sc.Step(`^version (\d+) has the sha of commit "([^"]*)"$`, w.versionHasTheShaOfCommit)

@@ -15,3 +15,7 @@ Feature: Reading git history as plugin versions
     When I read the commit for "second"
     Then the commit subject is "second"
     And the commit sha is the sha of commit "second"
+
+  Scenario: Checkout moves the clone to a specific commit
+    When I checkout commit "second"
+    Then HEAD is at commit "second"
