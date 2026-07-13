@@ -21,6 +21,14 @@ type Plugin struct {
 	Candidates []Version
 }
 
+// ChangesUpTo returns every change from the current version through the
+// candidate at index i (into the most-recent-first Candidates slice). Because
+// updating to a version pulls in all the intervening versions, the result spans
+// candidates[i:], preserving the most-recent-first ordering.
+func (p Plugin) ChangesUpTo(i int) []Version {
+	return p.Candidates[i:]
+}
+
 // Installable returns the candidate versions old enough to install given a
 // minimum release age, preserving the most-recent-first ordering.
 func (p Plugin) Installable(now time.Time, minAge time.Duration) []Version {
