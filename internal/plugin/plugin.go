@@ -46,6 +46,25 @@ func (p Plugin) ChangesUpTo(i int) []Version {
 	return p.Candidates[i:]
 }
 
+// IncludesBreaking reports whether updating to the candidate identified by sha
+// pulls in a breaking change. Updating moves the ref forward through every
+// candidate at or older than sha, so a breaking commit taints sha and every
+// newer candidate that would carry it along.
+func (p Plugin) IncludesBreaking(sha string) bool {
+	for i, c := range p.Candidates {
+		if c.SHA != sha {
+			continue
+		}
+		for _, pulled := range p.Candidates[i:] {
+			if pulled.Breaking() {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 // Installable returns the candidate versions old enough to install given a
 // minimum release age, preserving the most-recent-first ordering.
 func (p Plugin) Installable(now time.Time, minAge time.Duration) []Version {

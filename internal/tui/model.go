@@ -4,6 +4,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -40,8 +41,10 @@ type Model struct {
 	minAge  time.Duration
 	applier Applier
 
-	// status is a one-line message describing the last update attempt.
-	status string
+	// status is a one-line message describing the last update attempt;
+	// statusErr marks it as a failure so the footer can colour it.
+	status    string
+	statusErr bool
 
 	focus      focus
 	pluginIdx  int
@@ -119,10 +122,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case applyResultMsg:
 		if msg.err != nil {
-			m.status = fmt.Sprintf("update failed: %s → %s: %v", msg.pluginName, shortSHA(msg.sha), msg.err)
+			// The Applier's error leads with a one-line summary (e.g. "…broke
+			// nvim, rolled back to abc1234"); keep just that so the footer
+			// stays a single line instead of dumping a stack trace fullscreen.
+			m.status = firstLine(msg.err.Error())
+			m.statusErr = true
 			return m, nil
 		}
 		m.status = fmt.Sprintf("updated %s → %s", msg.pluginName, shortSHA(msg.sha))
+		m.statusErr = false
 		m.integrateUpdate(msg.sha)
 		return m, nil
 	}
@@ -273,6 +281,15 @@ func (m Model) maxChangesScroll() int {
 		return 0
 	}
 	return over
+}
+
+// firstLine returns s up to its first newline — the human-readable summary of a
+// multi-line error.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func clamp(v, lo, hi int) int {

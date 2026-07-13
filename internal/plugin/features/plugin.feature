@@ -19,6 +19,18 @@ Feature: Plugin changes and installability
     Given a commit with subject "fix: os should be system_info"
     Then the commit is not breaking
 
+  Scenario: Updating to a version includes any breaking change it pulls in
+    Given a plugin with candidates:
+      | sha | subject                | age_days |
+      | e   | feat: newest           | 10       |
+      | d   | fix: safe              | 20       |
+      | c   | feat!: breaking change | 30       |
+      | b   | fix: safe              | 40       |
+      | a   | fix: oldest            | 50       |
+    Then updating to "e" includes a breaking change
+    And updating to "c" includes a breaking change
+    And updating to "b" does not include a breaking change
+
   Scenario: Installable versions exclude those younger than the minimum age
     Given the current time is "2026-07-13"
     And a minimum release age of 14 days

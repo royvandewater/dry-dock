@@ -142,16 +142,25 @@ func (m Model) pluginBodyLines() []string {
 }
 
 func (m Model) versionBodyLines() []string {
+	p := m.SelectedPlugin()
 	visible := m.VisibleVersions()
 	lines := make([]string, 0, len(visible)*2)
 	for i, v := range visible {
-		label := fmt.Sprintf("%s  %s", shortSHA(v.SHA), relativeDate(v.Date, m.now))
+		text := fmt.Sprintf("%s  %s", shortSHA(v.SHA), relativeDate(v.Date, m.now))
+		breaking := p.IncludesBreaking(v.SHA)
 		subject := truncate(v.Subject, versionPaneWidth-2)
+		var label string
 		if m.focus == focusVersions && i == m.versionIdx {
-			label = selectedStyle.Render(padRight(label, versionPaneWidth-2))
+			if breaking {
+				text += "  ⚠"
+			}
+			label = selectedStyle.Render(padRight(text, versionPaneWidth-2))
 			subject = selectedStyle.Render(padRight("  "+subject, versionPaneWidth-2))
 		} else {
-			label = shaStyle.Render(label)
+			label = shaStyle.Render(text)
+			if breaking {
+				label += "  " + warningStyle.Render("⚠")
+			}
 			subject = "  " + dimStyle.Render(subject)
 		}
 		lines = append(lines, label, subject)
@@ -182,10 +191,15 @@ func (m Model) renderHeader() string {
 }
 
 // renderFooter shows the last update status when there is one, otherwise the
-// context-sensitive key hints.
+// context-sensitive key hints. The status is truncated to the window width so a
+// long (or multi-line) error can never overrun the single-line footer.
 func (m Model) renderFooter() string {
 	if m.status != "" {
-		return titleStyle.Render(m.status)
+		style := titleStyle
+		if m.statusErr {
+			style = warningStyle
+		}
+		return style.Render(truncate(m.status, m.width))
 	}
 	return helpStyle.Render(m.helpText())
 }

@@ -108,6 +108,20 @@ func (w *pluginWorld) theCommitIsNotBreaking() error {
 	return nil
 }
 
+func (w *pluginWorld) updatingToIncludesABreakingChange(sha string) error {
+	if !w.plugin.IncludesBreaking(sha) {
+		return fmt.Errorf("expected updating to %q to include a breaking change", sha)
+	}
+	return nil
+}
+
+func (w *pluginWorld) updatingToDoesNotIncludeABreakingChange(sha string) error {
+	if w.plugin.IncludesBreaking(sha) {
+		return fmt.Errorf("expected updating to %q not to include a breaking change", sha)
+	}
+	return nil
+}
+
 func (w *pluginWorld) iRequestTheChangesUpToIndex(i int) error {
 	w.result = w.plugin.ChangesUpTo(i)
 	return nil
@@ -141,6 +155,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a commit with subject "([^"]*)"$`, w.aCommitWithSubject)
 	sc.Step(`^the commit is breaking$`, w.theCommitIsBreaking)
 	sc.Step(`^the commit is not breaking$`, w.theCommitIsNotBreaking)
+	sc.Step(`^updating to "([^"]*)" includes a breaking change$`, w.updatingToIncludesABreakingChange)
+	sc.Step(`^updating to "([^"]*)" does not include a breaking change$`, w.updatingToDoesNotIncludeABreakingChange)
 	sc.Step(`^I request the changes up to index (\d+)$`, w.iRequestTheChangesUpToIndex)
 	sc.Step(`^I compute the installable versions$`, w.iComputeTheInstallableVersions)
 	sc.Step(`^the resulting shas are "([^"]*)"$`, w.theResultingShasAre)

@@ -36,10 +36,10 @@ func (u Updater) Apply(pluginName, sha string) error {
 
 	if err := u.moveTo(pluginName, sha); err != nil {
 		if rbErr := u.moveTo(pluginName, previous); rbErr != nil {
-			return fmt.Errorf("update of %s to %s failed (%v); rollback to %s also failed: %w",
-				pluginName, shortSHA(sha), err, shortSHA(previous), rbErr)
+			return fmt.Errorf("%s update to %s failed and rollback to %s also failed\n%v\n%w",
+				pluginName, shortSHA(sha), shortSHA(previous), err, rbErr)
 		}
-		return fmt.Errorf("update of %s to %s broke nvim; rolled back to %s: %w",
+		return fmt.Errorf("%s update to %s broke nvim, rolled back to %s\n%w",
 			pluginName, shortSHA(sha), shortSHA(previous), err)
 	}
 	return nil
