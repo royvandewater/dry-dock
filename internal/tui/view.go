@@ -122,6 +122,13 @@ func (m Model) versionContent(l layout) string {
 		if p.Constraint != "" {
 			empty = "(no newer release within " + p.Constraint + ")"
 		}
+		if n := p.TooNew(m.now, m.minAge); n > 0 {
+			unit := "release"
+			if n > 1 {
+				unit = "releases"
+			}
+			empty = fmt.Sprintf("(%d %s too new to install)", n, unit)
+		}
 		body := dimStyle.Render(empty)
 		if note != "" {
 			body = note + "\n" + body

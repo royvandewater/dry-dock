@@ -70,6 +70,24 @@ func longChangelog() Model {
 	return New([]plugin.Plugin{p}, now, 14*day)
 }
 
+// allTooNew builds a model with one plugin whose every candidate is younger
+// than the 14-day minimum age, so nothing is installable.
+func allTooNew() Model {
+	now := time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+
+	p := plugin.Plugin{
+		Name:    "fresh.nvim",
+		Current: plugin.Version{SHA: "cur"},
+		Candidates: []plugin.Version{
+			{SHA: "aaa", Subject: "one", Date: now.Add(-1 * day)},
+			{SHA: "bbb", Subject: "two", Date: now.Add(-2 * day)},
+			{SHA: "ccc", Subject: "three", Date: now.Add(-3 * day)},
+		},
+	}
+	return New([]plugin.Plugin{p}, now, 14*day)
+}
+
 var keys = map[string]tea.KeyType{
 	"up":    tea.KeyUp,
 	"down":  tea.KeyDown,
@@ -117,6 +135,18 @@ func (w *tuiWorld) theSampleModel() error {
 
 func (w *tuiWorld) theLongChangelogModel() error {
 	w.model = longChangelog()
+	return nil
+}
+
+func (w *tuiWorld) aModelWhoseOnlyPluginHasVersionsAllTooNew(n int) error {
+	w.model = allTooNew()
+	return nil
+}
+
+func (w *tuiWorld) theVersionsPaneShows(substr string) error {
+	if got := w.model.versionContent(w.model.layout()); !strings.Contains(got, substr) {
+		return fmt.Errorf("expected versions pane to contain %q, got %q", substr, got)
+	}
 	return nil
 }
 
@@ -301,6 +331,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the status contains "([^"]*)"$`, w.theStatusContains)
 	sc.Step(`^the status is empty$`, w.theStatusIsEmpty)
 	sc.Step(`^the long-changelog model$`, w.theLongChangelogModel)
+	sc.Step(`^a model whose only plugin has (\d+) versions all too new$`, w.aModelWhoseOnlyPluginHasVersionsAllTooNew)
+	sc.Step(`^the versions pane shows "([^"]*)"$`, w.theVersionsPaneShows)
 	sc.Step(`^a window size of (\d+) by (\d+)$`, w.aWindowSizeOf)
 	sc.Step(`^I press "([^"]*)" (\d+) times$`, w.iPressTimes)
 	sc.Step(`^I press "([^"]*)"$`, w.iPress)

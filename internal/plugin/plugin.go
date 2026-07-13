@@ -180,3 +180,17 @@ func (p Plugin) Installable(now time.Time, minAge time.Duration) []Version {
 	}
 	return installable
 }
+
+// TooNew counts the candidate versions younger than the minimum release age —
+// the ones filtered out of Installable for being too fresh to trust yet.
+func (p Plugin) TooNew(now time.Time, minAge time.Duration) int {
+	cutoff := now.Add(-minAge)
+
+	count := 0
+	for _, v := range p.Candidates {
+		if v.Date.After(cutoff) {
+			count++
+		}
+	}
+	return count
+}

@@ -35,6 +35,7 @@ type pluginWorld struct {
 	currentTag  string
 	constraint  string
 	outside     int
+	tooNew      int
 }
 
 func splitList(s string) []string {
@@ -182,6 +183,18 @@ func (w *pluginWorld) iComputeTheInstallableVersions() error {
 	return nil
 }
 
+func (w *pluginWorld) iCountTheVersionsTooNewToInstall() error {
+	w.tooNew = w.plugin.TooNew(w.now, w.minAge)
+	return nil
+}
+
+func (w *pluginWorld) versionsAreTooNew(n int) error {
+	if w.tooNew != n {
+		return fmt.Errorf("expected %d versions too new, got %d", n, w.tooNew)
+	}
+	return nil
+}
+
 func (w *pluginWorld) theResultingShasAre(list string) error {
 	want := splitList(list)
 	got := shas(w.result)
@@ -217,5 +230,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^there are (\d+) newer releases outside the range$`, w.thereAreNewerReleasesOutsideTheRange)
 	sc.Step(`^I request the changes up to index (\d+)$`, w.iRequestTheChangesUpToIndex)
 	sc.Step(`^I compute the installable versions$`, w.iComputeTheInstallableVersions)
+	sc.Step(`^I count the versions too new to install$`, w.iCountTheVersionsTooNewToInstall)
+	sc.Step(`^(\d+) versions are too new$`, w.versionsAreTooNew)
 	sc.Step(`^the resulting shas are "([^"]*)"$`, w.theResultingShasAre)
 }

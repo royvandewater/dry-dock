@@ -90,6 +90,11 @@ Feature: Navigating plugins, versions, and changes
     Then the status is empty
     And the selected plugin is "telescope.nvim"
 
+  Scenario: The versions pane reports how many releases are too new to install
+    Given a model whose only plugin has 3 versions all too new
+    And a window size of 120 by 40
+    Then the versions pane shows "3 releases too new to install"
+
   Scenario: Changing plugin resets version selection
     Given the sample model
     When I press "right"

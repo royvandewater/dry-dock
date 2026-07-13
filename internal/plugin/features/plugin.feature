@@ -70,3 +70,14 @@ Feature: Plugin changes and installability
       | bbb | seasoned | 30       |
     When I compute the installable versions
     Then the resulting shas are "bbb"
+
+  Scenario: Too-new count reports the candidates younger than the minimum age
+    Given the current time is "2026-07-13"
+    And a minimum release age of 14 days
+    And a plugin with candidates:
+      | sha | subject | age_days |
+      | aaa | fresh   | 1        |
+      | bbb | recent  | 5        |
+      | ccc | ripe    | 30       |
+    When I count the versions too new to install
+    Then 2 versions are too new
