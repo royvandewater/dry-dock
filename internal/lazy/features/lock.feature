@@ -14,3 +14,20 @@ Feature: Parsing lazy-lock.json
     Then there are 2 locked plugins
     And the locked plugin "telescope.nvim" has branch "master"
     And the locked plugin "telescope.nvim" has commit "3333a52ff548ba0a68af6d8da1e54f9cd96e9179"
+
+  Scenario: Setting a plugin's commit rewrites only that entry
+    Given a lazy-lock.json document:
+      """
+      {
+        "blink.cmp": { "branch": "main", "commit": "old" },
+        "telescope.nvim": { "branch": "master", "commit": "keepme" }
+      }
+      """
+    When I set "blink.cmp" commit to "newsha"
+    Then the resulting document is:
+      """
+      {
+        "blink.cmp": { "branch": "main", "commit": "newsha" },
+        "telescope.nvim": { "branch": "master", "commit": "keepme" }
+      }
+      """

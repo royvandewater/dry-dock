@@ -26,6 +26,7 @@ func TestFeatures(t *testing.T) {
 type lockWorld struct {
 	doc    string
 	locked []Locked
+	result string
 }
 
 func (w *lockWorld) find(name string) (Locked, error) {
@@ -48,6 +49,22 @@ func (w *lockWorld) iParseTheLockDocument() error {
 		return err
 	}
 	w.locked = locked
+	return nil
+}
+
+func (w *lockWorld) iSetCommitTo(name, commit string) error {
+	result, err := SetCommit(w.doc, name, commit)
+	if err != nil {
+		return err
+	}
+	w.result = result
+	return nil
+}
+
+func (w *lockWorld) theResultingDocumentIs(doc *godog.DocString) error {
+	if got := strings.TrimSpace(w.result); got != strings.TrimSpace(doc.Content) {
+		return fmt.Errorf("expected document:\n%s\ngot:\n%s", doc.Content, got)
+	}
 	return nil
 }
 
@@ -89,6 +106,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a lazy-lock\.json document:$`, w.aLazyLockDocument)
 	sc.Step(`^I parse the lock document$`, w.iParseTheLockDocument)
+	sc.Step(`^I set "([^"]*)" commit to "([^"]*)"$`, w.iSetCommitTo)
+	sc.Step(`^the resulting document is:$`, w.theResultingDocumentIs)
 	sc.Step(`^there are (\d+) locked plugins$`, w.thereAreLockedPlugins)
 	sc.Step(`^the locked plugin "([^"]*)" has branch "([^"]*)"$`, w.theLockedPluginHasBranch)
 	sc.Step(`^the locked plugin "([^"]*)" has commit "([^"]*)"$`, w.theLockedPluginHasCommit)

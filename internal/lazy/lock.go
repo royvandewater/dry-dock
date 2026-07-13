@@ -4,8 +4,10 @@ package lazy
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"sort"
+	"strings"
 )
 
 // Locked is a single plugin as pinned in lazy-lock.json.
@@ -32,4 +34,60 @@ func ParseLock(r io.Reader) ([]Locked, error) {
 	}
 	sort.Slice(locked, func(i, j int) bool { return locked[i].Name < locked[j].Name })
 	return locked, nil
+}
+
+// SetCommit rewrites doc so that name's commit becomes commit, leaving every
+// other entry and field untouched. The output matches lazy.vim's own format:
+// name-sorted entries, each on one line with alphabetically-ordered fields, so
+// dry-dock's edits produce the same diff lazy.vim would.
+func SetCommit(doc, name, commit string) (string, error) {
+	var entries map[string]map[string]string
+	if err := json.Unmarshal([]byte(doc), &entries); err != nil {
+		return "", err
+	}
+
+	entry, ok := entries[name]
+	if !ok {
+		return "", fmt.Errorf("plugin %q not found in lock file", name)
+	}
+	entry["commit"] = commit
+
+	names := make([]string, 0, len(entries))
+	for n := range entries {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	var b strings.Builder
+	b.WriteString("{\n")
+	for i, n := range names {
+		b.WriteString("  " + encodeString(n) + ": " + encodeEntry(entries[n]))
+		if i < len(names)-1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
+// encodeEntry renders a single lock entry on one line: { "k": "v", ... } with
+// alphabetically-ordered keys.
+func encodeEntry(entry map[string]string) string {
+	keys := make([]string, 0, len(entry))
+	for k := range entry {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = encodeString(k) + ": " + encodeString(entry[k])
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
+}
+
+func encodeString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
