@@ -169,8 +169,11 @@ func (m Model) pluginBodyLines() []string {
 	lines := make([]string, len(m.plugins))
 	for i, p := range m.plugins {
 		line := truncate(p.Name, pluginPaneWidth-2)
-		if i == m.pluginIdx {
+		switch {
+		case i == m.pluginIdx:
 			line = selectedStyle.Render(padRight(line, pluginPaneWidth-2))
+		case m.upToDate(i):
+			line = dimStyle.Render(line)
 		}
 		lines[i] = line
 	}
@@ -226,8 +229,14 @@ func (m Model) changesBodyLines(width int) []string {
 
 func (m Model) renderHeader() string {
 	age := formatDuration(m.minAge)
+	updatable := 0
+	for i := range m.plugins {
+		if !m.upToDate(i) {
+			updatable++
+		}
+	}
 	return titleStyle.Render("dry-dock") +
-		dimStyle.Render(fmt.Sprintf("  ·  minimum release age: %s  ·  %d plugin(s) with updates", age, len(m.plugins)))
+		dimStyle.Render(fmt.Sprintf("  ·  minimum release age: %s  ·  %d plugin(s) with updates", age, updatable))
 }
 
 // renderFooter shows the last update status when there is one, otherwise the

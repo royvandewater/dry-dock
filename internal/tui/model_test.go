@@ -88,6 +88,36 @@ func allTooNew() Model {
 	return New([]plugin.Plugin{p}, now, 14*day)
 }
 
+// mixed builds a model whose plugins arrive in an order that must be re-sorted:
+// an up-to-date plugin, an updatable one, and one whose only versions are too
+// new. Only the updatable plugin has installable versions, so it should rise to
+// the top while the other two sink to the bottom in their original order.
+func mixed() Model {
+	now := time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+
+	stale := plugin.Plugin{
+		Name:    "stale.nvim",
+		Current: plugin.Version{SHA: "staleCur"},
+	}
+	updatable := plugin.Plugin{
+		Name:    "updatable.nvim",
+		Current: plugin.Version{SHA: "upCur"},
+		Candidates: []plugin.Version{
+			{SHA: "upA", Subject: "one", Date: now.Add(-40 * day)},
+		},
+	}
+	fresh := plugin.Plugin{
+		Name:    "fresh.nvim",
+		Current: plugin.Version{SHA: "freshCur"},
+		Candidates: []plugin.Version{
+			{SHA: "fA", Subject: "one", Date: now.Add(-2 * day)},
+		},
+	}
+
+	return New([]plugin.Plugin{stale, updatable, fresh}, now, 14*day)
+}
+
 var keys = map[string]tea.KeyType{
 	"up":    tea.KeyUp,
 	"down":  tea.KeyDown,
@@ -135,6 +165,32 @@ func (w *tuiWorld) theSampleModel() error {
 
 func (w *tuiWorld) theLongChangelogModel() error {
 	w.model = longChangelog()
+	return nil
+}
+
+func (w *tuiWorld) theMixedModel() error {
+	w.model = mixed()
+	return nil
+}
+
+func (w *tuiWorld) pluginIsMuted(n int) error {
+	if !w.model.upToDate(n - 1) {
+		return fmt.Errorf("expected plugin %d to be muted", n)
+	}
+	return nil
+}
+
+func (w *tuiWorld) pluginIsNotMuted(n int) error {
+	if w.model.upToDate(n - 1) {
+		return fmt.Errorf("expected plugin %d not to be muted", n)
+	}
+	return nil
+}
+
+func (w *tuiWorld) theHeaderShows(substr string) error {
+	if got := w.model.renderHeader(); !strings.Contains(got, substr) {
+		return fmt.Errorf("expected header to contain %q, got %q", substr, got)
+	}
 	return nil
 }
 
@@ -331,6 +387,10 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the status contains "([^"]*)"$`, w.theStatusContains)
 	sc.Step(`^the status is empty$`, w.theStatusIsEmpty)
 	sc.Step(`^the long-changelog model$`, w.theLongChangelogModel)
+	sc.Step(`^the mixed model$`, w.theMixedModel)
+	sc.Step(`^plugin (\d+) is muted$`, w.pluginIsMuted)
+	sc.Step(`^plugin (\d+) is not muted$`, w.pluginIsNotMuted)
+	sc.Step(`^the header shows "([^"]*)"$`, w.theHeaderShows)
 	sc.Step(`^a model whose only plugin has (\d+) versions all too new$`, w.aModelWhoseOnlyPluginHasVersionsAllTooNew)
 	sc.Step(`^the versions pane shows "([^"]*)"$`, w.theVersionsPaneShows)
 	sc.Step(`^a window size of (\d+) by (\d+)$`, w.aWindowSizeOf)

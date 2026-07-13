@@ -64,14 +64,33 @@ Feature: Navigating plugins, versions, and changes
     Then the selected plugin is "telescope.nvim"
     And the visible version shas are "telB"
 
-  Scenario: A plugin with no more versions drops off the list after updating
+  Scenario: A fully-updated plugin becomes muted instead of dropping off
     Given the sample model with a recording updater
     When I press "down"
     And I press "right"
     And I press "enter"
     And I process pending commands
-    Then the selected plugin is "telescope.nvim"
-    And there is 1 plugin
+    Then there are 2 plugins
+    And the selected plugin is "blink.cmp"
+    And plugin 2 is muted
+    And the focus is on "plugins"
+
+  Scenario: Plugins with no installable updates sink to the bottom, muted
+    Given the mixed model
+    Then there are 3 plugins
+    And the selected plugin is "updatable.nvim"
+    And plugin 1 is not muted
+    And plugin 2 is muted
+    And plugin 3 is muted
+    When I press "down"
+    Then the selected plugin is "stale.nvim"
+    When I press "down"
+    Then the selected plugin is "fresh.nvim"
+
+  Scenario: The header counts only plugins with updates
+    Given the mixed model
+    And a window size of 120 by 40
+    Then the header shows "1 plugin(s) with updates"
 
   Scenario: A failed update surfaces its error in the status
     Given the sample model with a failing updater
