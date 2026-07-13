@@ -45,6 +45,8 @@ Highlighting a plugin lists the versions it can update to, newest first, all
 newer than the installed version and all old enough to satisfy the minimum
 release age. Highlighting a version shows every change pulled in by updating to
 it — the cumulative changelog from the current version through the selected one.
+Commits that announce a breaking change (a Conventional Commits `!` marker or
+`BREAKING CHANGE`) are tagged **⚠ BREAKING** in the changelog.
 
 Pressing **enter** on a version performs the update: dry-dock rewrites
 `lazy-lock.json` to pin the chosen commit (matching lazy.vim's own lock format),
@@ -52,8 +54,13 @@ then runs `nvim --headless "+Lazy! restore <plugin>" +qa` so lazy.vim performs
 the checkout through its own pipeline — installing new dependencies and running
 build steps. dry-dock deliberately does not `git checkout` the clone itself: a
 raw checkout skips lazy's pipeline and can leave a plugin broken (e.g. a version
-bump that pulls in a new dependency). Once applied, the version drops out of the
-list and the changelog reflects the plugin's new position.
+bump that pulls in a new dependency).
+
+After the checkout, dry-dock loads the plugin in a headless nvim to confirm it
+still works. If nvim reports an error, dry-dock **rolls the plugin back** to the
+commit it was on before and reports the failure — so a breaking update can't
+leave your editor unusable. On success, the version drops out of the list and
+the changelog reflects the plugin's new position.
 
 ## Usage
 
