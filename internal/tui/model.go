@@ -4,6 +4,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,10 +59,28 @@ type Model struct {
 	width, height int
 }
 
-// New builds a Model over the given updatable plugins. now and minAge drive the
-// minimum-release-age filter applied to each plugin's versions.
+// New builds a Model over the given plugins. now and minAge drive the
+// minimum-release-age filter applied to each plugin's versions, and plugins
+// with no installable versions are sorted to the bottom of the list.
 func New(plugins []plugin.Plugin, now time.Time, minAge time.Duration) Model {
+	sortByUpdatable(plugins, now, minAge)
 	return Model{plugins: plugins, now: now, minAge: minAge}
+}
+
+// sortByUpdatable stably orders plugins so those with installable versions come
+// first and the up-to-date (muted) ones sink to the bottom, each group keeping
+// its original order.
+func sortByUpdatable(plugins []plugin.Plugin, now time.Time, minAge time.Duration) {
+	sort.SliceStable(plugins, func(i, j int) bool {
+		return len(plugins[i].Installable(now, minAge)) > 0 &&
+			len(plugins[j].Installable(now, minAge)) == 0
+	})
+}
+
+// upToDate reports whether the plugin at index i has no versions old enough to
+// install — the muted plugins pinned to the bottom of the list.
+func (m Model) upToDate(i int) bool {
+	return len(m.plugins[i].Installable(m.now, m.minAge)) == 0
 }
 
 // WithApplier returns a copy of the model that performs updates through a.
@@ -170,8 +189,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // integrateUpdate refreshes the plugin list after a successful update to sha.
 // Because updating pulls the plugin's ref forward, the versions newer than sha
 // remain installable while sha and everything older become history. When no
-// newer versions remain, the plugin has nothing left to offer and drops off the
-// list, mirroring how it was assembled in the first place.
+// newer versions remain, the plugin is now up to date; it stays in the list
+// (muted) but re-sorts to the bottom rather than dropping off.
 func (m *Model) integrateUpdate(sha string) {
 	idx := m.pluginIdx
 	p := m.plugins[idx]
@@ -187,19 +206,18 @@ func (m *Model) integrateUpdate(sha string) {
 		return
 	}
 
-	remaining := p.Candidates[:ci]
-	if len(remaining) == 0 {
-		m.plugins = append(m.plugins[:idx], m.plugins[idx+1:]...)
-		if len(m.plugins) == 0 {
-			m.pluginIdx = 0
-		} else {
-			m.pluginIdx = clamp(idx, 0, len(m.plugins)-1)
+	p.Current = p.Candidates[ci]
+	p.Candidates = p.Candidates[:ci]
+	m.plugins[idx] = p
+
+	// Re-sort so a now-up-to-date plugin sinks to the bottom, then keep the
+	// selection on the plugin we just updated wherever it landed.
+	sortByUpdatable(m.plugins, m.now, m.minAge)
+	for i := range m.plugins {
+		if m.plugins[i].Name == p.Name {
+			m.pluginIdx = i
+			break
 		}
-		m.focus = focusPlugins
-	} else {
-		p.Current = p.Candidates[ci]
-		p.Candidates = remaining
-		m.plugins[idx] = p
 	}
 
 	m.versionIdx = 0
@@ -209,7 +227,7 @@ func (m *Model) integrateUpdate(sha string) {
 
 	// A refreshed plugin may have no versions old enough to install; fall back
 	// to the plugin list so focus never lands on an empty pane.
-	if len(m.plugins) == 0 || len(m.VisibleVersions()) == 0 {
+	if len(m.VisibleVersions()) == 0 {
 		m.focus = focusPlugins
 	}
 }

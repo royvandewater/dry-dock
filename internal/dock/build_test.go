@@ -149,6 +149,13 @@ func (w *buildWorld) pluginHasCurrentSha(n int, sha string) error {
 	return nil
 }
 
+func (w *buildWorld) pluginHasNoCandidates(n int) error {
+	if got := len(w.plugins[n-1].Candidates); got != 0 {
+		return fmt.Errorf("expected plugin %d to have no candidates, got %d", n, got)
+	}
+	return nil
+}
+
 func (w *buildWorld) pluginHasCandidateShas(n int, list string) error {
 	var got []string
 	for _, c := range w.plugins[n-1].Candidates {
@@ -323,6 +330,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^plugin (\d+) is named "([^"]*)"$`, w.pluginIsNamed)
 	sc.Step(`^plugin (\d+) has current sha "([^"]*)"$`, w.pluginHasCurrentSha)
 	sc.Step(`^plugin (\d+) has candidate shas "([^"]*)"$`, w.pluginHasCandidateShas)
+	sc.Step(`^plugin (\d+) has no candidates$`, w.pluginHasNoCandidates)
 	sc.Step(`^the source offers tags for "([^"]*)":$`, w.offersTagsFor)
 	sc.Step(`^"([^"]*)" has version constraint "([^"]*)"$`, w.hasVersionConstraint)
 	sc.Step(`^plugin (\d+) has (\d+) release outside its constraint$`, w.pluginHasReleasesOutsideItsConstraint)

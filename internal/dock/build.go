@@ -18,11 +18,11 @@ type VersionSource interface {
 	Describe(dir, sha string) (string, error)
 }
 
-// Build turns locked plugins into plugin.Plugin values, dropping any that have
-// no newer versions to offer. matchers maps a plugin name to its lazy.vim
-// version constraint (e.g. "1.*"); a plugin with a constraint is offered only
-// the release tags that satisfy it, and records how many newer releases fall
-// outside it.
+// Build turns locked plugins into plugin.Plugin values, keeping even those with
+// no newer versions so the TUI can list them as up to date. matchers maps a
+// plugin name to its lazy.vim version constraint (e.g. "1.*"); a plugin with a
+// constraint is offered only the release tags that satisfy it, and records how
+// many newer releases fall outside it.
 func Build(installDir string, locked []lazy.Locked, matchers map[string]string, src VersionSource) ([]plugin.Plugin, error) {
 	var plugins []plugin.Plugin
 	for _, l := range locked {
@@ -39,8 +39,9 @@ func Build(installDir string, locked []lazy.Locked, matchers map[string]string, 
 	return plugins, nil
 }
 
-// buildOne assembles a single plugin, returning nil when it has nothing to
-// offer. Plugins with a version constraint are tag-based; the rest track their
+// buildOne assembles a single plugin. A plugin with no newer versions is still
+// returned (with an empty Candidates slice) so the TUI can show it as up to
+// date. Plugins with a version constraint are tag-based; the rest track their
 // branch commit by commit.
 func buildOne(dir string, l lazy.Locked, constraint string, src VersionSource) (*plugin.Plugin, error) {
 	current, err := src.Current(dir, l.Commit)
@@ -52,9 +53,6 @@ func buildOne(dir string, l lazy.Locked, constraint string, src VersionSource) (
 		candidates, err := src.Candidates(dir, l.Commit, "origin/"+l.Branch)
 		if err != nil {
 			return nil, err
-		}
-		if len(candidates) == 0 {
-			return nil, nil
 		}
 		return &plugin.Plugin{Name: l.Name, Current: current, Candidates: candidates}, nil
 	}
@@ -70,9 +68,6 @@ func buildOne(dir string, l lazy.Locked, constraint string, src VersionSource) (
 	inRange, outside, err := plugin.SelectInRange(tags, constraint, l.Commit, hint)
 	if err != nil {
 		return nil, err
-	}
-	if len(inRange) == 0 && outside == 0 {
-		return nil, nil
 	}
 	return &plugin.Plugin{
 		Name:       l.Name,
