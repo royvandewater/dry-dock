@@ -98,6 +98,17 @@ func SelectInRange(tags []Version, constraint, currentSHA, currentTagHint string
 	return inRange, len(outsideSHAs), nil
 }
 
+// CurrentTag returns the release tag the pinned commit sits on: the highest
+// semver tag pointing at sha, falling back to hint (e.g. `git describe`'s
+// nearest ancestor tag) when the commit itself is untagged. It returns "" when
+// neither is available, so callers can fall back to the bare SHA.
+func CurrentTag(tags []Version, sha, hint string) string {
+	if current := highestSemverAt(tags, sha); current != nil {
+		return current.Original()
+	}
+	return hint
+}
+
 // highestSemverAt returns the greatest semver tag pointing at sha, or nil when
 // the commit carries no semver-valid tag.
 func highestSemverAt(tags []Version, sha string) *semver.Version {

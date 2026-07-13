@@ -114,6 +114,16 @@ Feature: Navigating plugins, versions, and changes
     And a window size of 120 by 40
     Then the versions pane shows "3 releases too new to install"
 
+  Scenario: The versions pane marks the currently installed version
+    Given the sample model
+    And a window size of 120 by 40
+    Then the versions pane shows "installed telCur"
+
+  Scenario: The versions pane marks the installed version even when nothing is installable
+    Given a model whose only plugin has 3 versions all too new
+    And a window size of 120 by 40
+    Then the versions pane shows "installed cur"
+
   Scenario: Changing plugin resets version selection
     Given the sample model
     When I press "right"

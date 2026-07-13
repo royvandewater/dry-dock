@@ -69,6 +69,9 @@ func buildOne(dir string, l lazy.Locked, constraint string, src VersionSource) (
 	if err != nil {
 		return nil, err
 	}
+	// A versioned plugin is pinned to a release tag; surface it so the TUI can
+	// show the version number rather than the bare commit SHA.
+	current.Tag = plugin.CurrentTag(tags, l.Commit, hint)
 	return &plugin.Plugin{
 		Name:       l.Name,
 		Current:    current,

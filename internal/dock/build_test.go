@@ -149,6 +149,13 @@ func (w *buildWorld) pluginHasCurrentSha(n int, sha string) error {
 	return nil
 }
 
+func (w *buildWorld) pluginHasCurrentTag(n int, tag string) error {
+	if got := w.plugins[n-1].Current.Tag; got != tag {
+		return fmt.Errorf("expected plugin %d current tag %q, got %q", n, tag, got)
+	}
+	return nil
+}
+
 func (w *buildWorld) pluginHasNoCandidates(n int) error {
 	if got := len(w.plugins[n-1].Candidates); got != 0 {
 		return fmt.Errorf("expected plugin %d to have no candidates, got %d", n, got)
@@ -329,6 +336,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^there are (\d+) plugins$`, w.thereArePlugins)
 	sc.Step(`^plugin (\d+) is named "([^"]*)"$`, w.pluginIsNamed)
 	sc.Step(`^plugin (\d+) has current sha "([^"]*)"$`, w.pluginHasCurrentSha)
+	sc.Step(`^plugin (\d+) has current tag "([^"]*)"$`, w.pluginHasCurrentTag)
 	sc.Step(`^plugin (\d+) has candidate shas "([^"]*)"$`, w.pluginHasCandidateShas)
 	sc.Step(`^plugin (\d+) has no candidates$`, w.pluginHasNoCandidates)
 	sc.Step(`^the source offers tags for "([^"]*)":$`, w.offersTagsFor)

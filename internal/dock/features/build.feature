@@ -32,6 +32,7 @@ Feature: Building the plugin list
     Then there is 1 plugin
     And plugin 1 is named "blink.cmp"
     And plugin 1 has no candidates
+    And plugin 1 has current tag "v1.0.0"
 
   Scenario: A versioned plugin lists only in-range tags and notes the rest
     Given the install dir "/plugins"
