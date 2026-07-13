@@ -102,6 +102,16 @@ func (m Model) versionContent(l layout) string {
 	p := m.SelectedPlugin()
 	lines := m.versionBodyLines()
 
+	// Show which version the plugin is currently pinned to. The installable
+	// list only holds versions newer than this, so without the marker there's
+	// nothing anchoring the changes against what's already installed. The line
+	// costs one row of the list window.
+	installedID := shortSHA(p.Current.SHA)
+	if p.Current.Tag != "" {
+		installedID = p.Current.Tag
+	}
+	installed := dimStyle.Render("installed " + installedID)
+
 	// When the plugin pins a version range, note the newer releases hidden
 	// because they fall outside it. The note costs one row of the list window.
 	note := ""
@@ -112,7 +122,7 @@ func (m Model) versionContent(l layout) string {
 		}
 		note = warningStyle.Render(fmt.Sprintf("⚠ %d newer %s outside %s", p.OutOfScope, unit, p.Constraint))
 	}
-	rows := l.listRows
+	rows := max(1, l.listRows-1) // installed line
 	if note != "" {
 		rows = max(1, rows-1)
 	}
@@ -133,13 +143,13 @@ func (m Model) versionContent(l layout) string {
 		if note != "" {
 			body = note + "\n" + body
 		}
-		return titleStyle.Render("Versions") + "\n" + body
+		return titleStyle.Render("Versions") + "\n" + installed + "\n" + body
 	}
 
 	// Each version occupies two lines; keep the selected pair in view.
 	offset := follow(m.versionIdx*2, len(lines), rows)
 	body := window(lines, offset, rows)
-	out := titleStyle.Render(scrollTitle("Versions", offset, len(lines), rows)) + "\n"
+	out := titleStyle.Render(scrollTitle("Versions", offset, len(lines), rows)) + "\n" + installed + "\n"
 	if note != "" {
 		out += note + "\n"
 	}
