@@ -124,6 +124,47 @@ Feature: Navigating plugins, versions, and changes
     And a window size of 120 by 40
     Then the versions pane shows "installed cur"
 
+  Scenario: Expanding the out-of-range header reveals its versions and changelogs
+    Given the constrained model
+    When I press "right"
+    Then the selected version sha is "c111"
+    When I press "down"
+    Then no version is selected
+    When I press "enter"
+    And I press "down"
+    Then the selected version sha is "c210"
+    And the selected changes shas are "c210, c200, c112, c111"
+
+  Scenario: Collapsing the out-of-range header hides its versions again
+    Given the constrained model
+    When I press "right"
+    And I press "down"
+    And I press "enter"
+    And I press "enter"
+    And I press "down"
+    Then no version is selected
+    And the versions pane shows "1 release too new to install"
+
+  Scenario: Expanding the too-new header reveals its versions
+    Given the constrained model
+    When I press "right"
+    And I press "down"
+    And I press "down"
+    Then no version is selected
+    When I press "enter"
+    And I press "down"
+    Then the selected version sha is "c112"
+
+  Scenario: Enter on an out-of-range version does not apply it
+    Given the constrained model with a recording updater
+    When I press "right"
+    And I press "down"
+    And I press "enter"
+    And I press "down"
+    And I press "enter"
+    Then the updater was not called
+    And the status is empty
+
   Scenario: Changing plugin resets version selection
     Given the sample model
     When I press "right"

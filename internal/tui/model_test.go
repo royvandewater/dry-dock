@@ -52,6 +52,30 @@ func sample() Model {
 	return New([]plugin.Plugin{tel, cmp}, now, 14*day)
 }
 
+// constrained builds a model with one versioned plugin pinned to v1.10.0 under a
+// "1.*" constraint. It has an installable in-range release, an in-range release
+// that is still too new, and two out-of-range releases (v2.x) hidden by the
+// constraint — exercising both collapsible headers.
+func constrained() Model {
+	now := time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+
+	p := plugin.Plugin{
+		Name:       "vim-pinned",
+		Current:    plugin.Version{SHA: "pinCur", Tag: "v1.10.0"},
+		Constraint: "1.*",
+		Candidates: []plugin.Version{
+			{SHA: "c112", Tag: "v1.12.0", Subject: "in-range fresh", Date: now.Add(-2 * day)}, // too new
+			{SHA: "c111", Tag: "v1.11.0", Subject: "in-range ripe", Date: now.Add(-30 * day)}, // installable
+		},
+		OutOfScope: []plugin.Version{
+			{SHA: "c210", Tag: "v2.1.0", Subject: "major two-one", Date: now.Add(-3 * day)},
+			{SHA: "c200", Tag: "v2.0.0", Subject: "major two-oh", Date: now.Add(-20 * day)},
+		},
+	}
+	return New([]plugin.Plugin{p}, now, 14*day)
+}
+
 // longChangelog builds a model whose selected plugin has many versions, so its
 // changelog is far taller than any reasonable viewport.
 func longChangelog() Model {
@@ -170,6 +194,31 @@ func (w *tuiWorld) theLongChangelogModel() error {
 
 func (w *tuiWorld) theMixedModel() error {
 	w.model = mixed()
+	return nil
+}
+
+func (w *tuiWorld) theConstrainedModel() error {
+	w.model = constrained()
+	return nil
+}
+
+func (w *tuiWorld) theConstrainedModelWithARecordingUpdater() error {
+	w.updater = &recordingUpdater{}
+	w.model = constrained().WithApplier(w.updater)
+	return nil
+}
+
+func (w *tuiWorld) noVersionIsSelected() error {
+	if _, ok := w.model.SelectedVersion(); ok {
+		return fmt.Errorf("expected no selected version, got one")
+	}
+	return nil
+}
+
+func (w *tuiWorld) theUpdaterWasNotCalled() error {
+	if w.updater.called {
+		return fmt.Errorf("expected the updater not to be called")
+	}
 	return nil
 }
 
@@ -388,6 +437,10 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the status is empty$`, w.theStatusIsEmpty)
 	sc.Step(`^the long-changelog model$`, w.theLongChangelogModel)
 	sc.Step(`^the mixed model$`, w.theMixedModel)
+	sc.Step(`^the constrained model$`, w.theConstrainedModel)
+	sc.Step(`^the constrained model with a recording updater$`, w.theConstrainedModelWithARecordingUpdater)
+	sc.Step(`^no version is selected$`, w.noVersionIsSelected)
+	sc.Step(`^the updater was not called$`, w.theUpdaterWasNotCalled)
 	sc.Step(`^plugin (\d+) is muted$`, w.pluginIsMuted)
 	sc.Step(`^plugin (\d+) is not muted$`, w.pluginIsNotMuted)
 	sc.Step(`^the header shows "([^"]*)"$`, w.theHeaderShows)

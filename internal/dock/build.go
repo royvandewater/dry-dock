@@ -65,7 +65,7 @@ func buildOne(dir string, l lazy.Locked, constraint string, src VersionSource) (
 	if err != nil {
 		return nil, err
 	}
-	inRange, outside, err := plugin.SelectInRange(tags, constraint, l.Commit, hint)
+	inRange, outOfScope, err := plugin.SelectInRange(tags, constraint, l.Commit, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +77,6 @@ func buildOne(dir string, l lazy.Locked, constraint string, src VersionSource) (
 		Current:    current,
 		Candidates: inRange,
 		Constraint: constraint,
-		OutOfScope: outside,
+		OutOfScope: outOfScope,
 	}, nil
 }

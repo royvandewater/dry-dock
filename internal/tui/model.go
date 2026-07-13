@@ -51,6 +51,11 @@ type Model struct {
 	pluginIdx  int
 	versionIdx int
 
+	// expandOutOfScope and expandTooNew track whether the versions pane's
+	// collapsible warning headers are open, revealing the hidden releases.
+	expandOutOfScope bool
+	expandTooNew     bool
+
 	// scroll offsets, in lines, for panes taller than their viewport.
 	pluginScroll  int
 	versionScroll int
@@ -104,32 +109,88 @@ func (m Model) VisibleVersions() []plugin.Version {
 	return m.SelectedPlugin().Installable(m.now, m.minAge)
 }
 
-// SelectedVersion returns the highlighted version, or ok=false when the version
-// pane has nothing selected.
+// entryKind distinguishes the rows of the versions pane: installable versions,
+// the two collapsible warning headers, and the hidden releases each reveals.
+type entryKind int
+
+const (
+	entryInstallable entryKind = iota
+	entryOutOfScopeHeader
+	entryOutOfScope
+	entryTooNewHeader
+	entryTooNew
+)
+
+// versionEntry is one selectable row in the versions pane. Version rows carry a
+// release; header rows carry the count of releases they hide.
+type versionEntry struct {
+	kind    entryKind
+	version plugin.Version
+	count   int
+}
+
+func (e versionEntry) isHeader() bool {
+	return e.kind == entryOutOfScopeHeader || e.kind == entryTooNewHeader
+}
+
+// versionEntries is the flat, ordered list the versions pane navigates:
+// installable releases first, then an out-of-scope header (with its releases
+// when expanded), then a too-new header (with its releases when expanded).
+func (m Model) versionEntries() []versionEntry {
+	p := m.SelectedPlugin()
+	var entries []versionEntry
+	for _, v := range m.VisibleVersions() {
+		entries = append(entries, versionEntry{kind: entryInstallable, version: v})
+	}
+	if len(p.OutOfScope) > 0 {
+		entries = append(entries, versionEntry{kind: entryOutOfScopeHeader, count: len(p.OutOfScope)})
+		if m.expandOutOfScope {
+			for _, v := range p.OutOfScope {
+				entries = append(entries, versionEntry{kind: entryOutOfScope, version: v})
+			}
+		}
+	}
+	if tooNew := p.TooNewVersions(m.now, m.minAge); len(tooNew) > 0 {
+		entries = append(entries, versionEntry{kind: entryTooNewHeader, count: len(tooNew)})
+		if m.expandTooNew {
+			for _, v := range tooNew {
+				entries = append(entries, versionEntry{kind: entryTooNew, version: v})
+			}
+		}
+	}
+	return entries
+}
+
+// selectedEntry returns the highlighted versions-pane row, or ok=false when the
+// pane is empty or the index is out of range.
+func (m Model) selectedEntry() (versionEntry, bool) {
+	entries := m.versionEntries()
+	if m.versionIdx < 0 || m.versionIdx >= len(entries) {
+		return versionEntry{}, false
+	}
+	return entries[m.versionIdx], true
+}
+
+// SelectedVersion returns the highlighted version, or ok=false when the pane has
+// nothing selected or the selection is on a collapsible header.
 func (m Model) SelectedVersion() (plugin.Version, bool) {
-	visible := m.VisibleVersions()
-	if m.versionIdx < 0 || m.versionIdx >= len(visible) {
+	e, ok := m.selectedEntry()
+	if !ok || e.isHeader() {
 		return plugin.Version{}, false
 	}
-	return visible[m.versionIdx], true
+	return e.version, true
 }
 
 // SelectedChanges returns every change pulled in by updating to the highlighted
 // version: from the current version through the selected one, newest first.
-// This spans versions filtered out of the list for being too young, since
-// moving the plugin's ref forward necessarily includes them.
+// This spans versions filtered out of the list for being too young or outside
+// the constraint, since moving the plugin's ref forward includes them.
 func (m Model) SelectedChanges() []plugin.Version {
 	sel, ok := m.SelectedVersion()
 	if !ok {
 		return nil
 	}
-	p := m.SelectedPlugin()
-	for i, c := range p.Candidates {
-		if c.SHA == sel.SHA {
-			return p.ChangesUpTo(i)
-		}
-	}
-	return nil
+	return m.SelectedPlugin().ChangesTo(sel)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -181,9 +242,31 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyDown:
 		m.moveSelection(1)
 	case tea.KeyEnter:
+		if m.toggleSelectedHeader() {
+			return m, nil
+		}
 		return m, m.applySelected()
 	}
 	return m, nil
+}
+
+// toggleSelectedHeader flips the expand state of the highlighted collapsible
+// header, reporting whether the selection was on a header (so Enter toggles it
+// rather than attempting an update).
+func (m *Model) toggleSelectedHeader() bool {
+	e, ok := m.selectedEntry()
+	if !ok {
+		return false
+	}
+	switch e.kind {
+	case entryOutOfScopeHeader:
+		m.expandOutOfScope = !m.expandOutOfScope
+		return true
+	case entryTooNewHeader:
+		m.expandTooNew = !m.expandTooNew
+		return true
+	}
+	return false
 }
 
 // integrateUpdate refreshes the plugin list after a successful update to sha.
@@ -224,6 +307,8 @@ func (m *Model) integrateUpdate(sha string) {
 	m.versionScroll = 0
 	m.pluginScroll = 0
 	m.changesScroll = 0
+	m.expandOutOfScope = false
+	m.expandTooNew = false
 
 	// A refreshed plugin may have no versions old enough to install; fall back
 	// to the plugin list so focus never lands on an empty pane.
@@ -239,10 +324,14 @@ func (m *Model) applySelected() tea.Cmd {
 	if m.applier == nil {
 		return nil
 	}
-	sel, ok := m.SelectedVersion()
-	if !ok {
+	e, ok := m.selectedEntry()
+	if !ok || e.kind != entryInstallable {
+		// Only installable versions can be applied. Too-new and out-of-scope
+		// releases are surfaced for inspection but not offered for update, so
+		// Enter on them is a no-op.
 		return nil
 	}
+	sel := e.version
 	name := m.SelectedPlugin().Name
 	applier := m.applier
 	m.status = fmt.Sprintf("updating %s → %s…", name, shortSHA(sel.SHA))
@@ -257,7 +346,7 @@ func (m *Model) applySelected() tea.Cmd {
 func (m *Model) focusNext() {
 	switch m.focus {
 	case focusPlugins:
-		if len(m.VisibleVersions()) > 0 {
+		if len(m.versionEntries()) > 0 {
 			m.focus = focusVersions
 			m.versionIdx = 0
 			m.changesScroll = 0
@@ -289,8 +378,10 @@ func (m *Model) moveSelection(delta int) {
 		m.versionIdx = 0
 		m.versionScroll = 0
 		m.changesScroll = 0
+		m.expandOutOfScope = false
+		m.expandTooNew = false
 	case focusVersions:
-		m.versionIdx = clamp(m.versionIdx+delta, 0, len(m.VisibleVersions())-1)
+		m.versionIdx = clamp(m.versionIdx+delta, 0, len(m.versionEntries())-1)
 		m.changesScroll = 0
 	case focusChanges:
 		m.changesScroll = clamp(m.changesScroll+delta, 0, m.maxChangesScroll())

@@ -113,7 +113,7 @@ func (w *buildWorld) hasVersionConstraint(name, constraint string) error {
 }
 
 func (w *buildWorld) pluginHasReleasesOutsideItsConstraint(n, count int) error {
-	if got := w.plugins[n-1].OutOfScope; got != count {
+	if got := len(w.plugins[n-1].OutOfScope); got != count {
 		return fmt.Errorf("expected plugin %d to have %d releases outside its constraint, got %d", n, count, got)
 	}
 	return nil

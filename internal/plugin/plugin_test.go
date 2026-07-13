@@ -34,7 +34,7 @@ type pluginWorld struct {
 	tagVersions []Version
 	currentTag  string
 	constraint  string
-	outside     int
+	outside     []Version
 	tooNew      int
 }
 
@@ -91,6 +91,25 @@ func (w *pluginWorld) aPluginWithCandidates(table *godog.Table) error {
 		})
 	}
 	w.plugin = Plugin{Name: "test.nvim", Current: Version{SHA: "cur"}, Candidates: candidates}
+	return nil
+}
+
+func (w *pluginWorld) aVersionedPlugin(table *godog.Table) error {
+	p := Plugin{Name: "test.nvim", Current: Version{SHA: "cur"}, Constraint: "1.*"}
+	for _, row := range table.Rows[1:] {
+		v := Version{Tag: row.Cells[0].Value, SHA: row.Cells[1].Value}
+		if row.Cells[2].Value == "out" {
+			p.OutOfScope = append(p.OutOfScope, v)
+		} else {
+			p.Candidates = append(p.Candidates, v)
+		}
+	}
+	w.plugin = p
+	return nil
+}
+
+func (w *pluginWorld) iRequestTheChangesTo(sha string) error {
+	w.result = w.plugin.ChangesTo(Version{SHA: sha})
 	return nil
 }
 
@@ -153,8 +172,17 @@ func (w *pluginWorld) iSelectTheInRangeVersions() error {
 }
 
 func (w *pluginWorld) thereAreNewerReleasesOutsideTheRange(n int) error {
-	if w.outside != n {
-		return fmt.Errorf("expected %d newer releases outside the range, got %d", n, w.outside)
+	if len(w.outside) != n {
+		return fmt.Errorf("expected %d newer releases outside the range, got %d", n, len(w.outside))
+	}
+	return nil
+}
+
+func (w *pluginWorld) theOutOfRangeShasAre(list string) error {
+	want := splitList(list)
+	got := shas(w.outside)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		return fmt.Errorf("expected out-of-range shas %v, got %v", want, got)
 	}
 	return nil
 }
@@ -188,6 +216,11 @@ func (w *pluginWorld) iCountTheVersionsTooNewToInstall() error {
 	return nil
 }
 
+func (w *pluginWorld) iListTheVersionsTooNewToInstall() error {
+	w.result = w.plugin.TooNewVersions(w.now, w.minAge)
+	return nil
+}
+
 func (w *pluginWorld) versionsAreTooNew(n int) error {
 	if w.tooNew != n {
 		return fmt.Errorf("expected %d versions too new, got %d", n, w.tooNew)
@@ -215,6 +248,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a minimum release age of (\d+) days$`, w.aMinimumReleaseAgeOfDays)
 	sc.Step(`^a plugin whose candidates newest-first are "([^"]*)"$`, w.aPluginWhoseCandidatesNewestFirstAre)
 	sc.Step(`^a plugin with candidates:$`, w.aPluginWithCandidates)
+	sc.Step(`^a versioned plugin:$`, w.aVersionedPlugin)
+	sc.Step(`^I request the changes to "([^"]*)"$`, w.iRequestTheChangesTo)
 	sc.Step(`^a commit with subject "([^"]*)"$`, w.aCommitWithSubject)
 	sc.Step(`^the commit is breaking$`, w.theCommitIsBreaking)
 	sc.Step(`^the commit is not breaking$`, w.theCommitIsNotBreaking)
@@ -228,9 +263,11 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I select the in-range versions$`, w.iSelectTheInRangeVersions)
 	sc.Step(`^there is (\d+) newer release outside the range$`, w.thereAreNewerReleasesOutsideTheRange)
 	sc.Step(`^there are (\d+) newer releases outside the range$`, w.thereAreNewerReleasesOutsideTheRange)
+	sc.Step(`^the out-of-range shas are "([^"]*)"$`, w.theOutOfRangeShasAre)
 	sc.Step(`^I request the changes up to index (\d+)$`, w.iRequestTheChangesUpToIndex)
 	sc.Step(`^I compute the installable versions$`, w.iComputeTheInstallableVersions)
 	sc.Step(`^I count the versions too new to install$`, w.iCountTheVersionsTooNewToInstall)
+	sc.Step(`^I list the versions too new to install$`, w.iListTheVersionsTooNewToInstall)
 	sc.Step(`^(\d+) versions are too new$`, w.versionsAreTooNew)
 	sc.Step(`^the resulting shas are "([^"]*)"$`, w.theResultingShasAre)
 }
