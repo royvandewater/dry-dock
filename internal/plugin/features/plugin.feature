@@ -1,0 +1,18 @@
+Feature: Plugin changes and installability
+  A plugin exposes the changes pulled in by updating to a chosen version and
+  filters out candidate versions that are too young to install.
+
+  Scenario: Changes accumulate from current through the selected version
+    Given a plugin whose candidates newest-first are "v3, v2, v1"
+    When I request the changes up to index 1
+    Then the resulting shas are "v2, v1"
+
+  Scenario: Installable versions exclude those younger than the minimum age
+    Given the current time is "2026-07-13"
+    And a minimum release age of 14 days
+    And a plugin with candidates:
+      | sha | subject  | age_days |
+      | aaa | recent   | 2        |
+      | bbb | seasoned | 30       |
+    When I compute the installable versions
+    Then the resulting shas are "bbb"
