@@ -37,17 +37,23 @@ Three panes, driven entirely by the arrow keys:
 - **↑ / ↓** — move the highlight in the focused pane.
 - **→** — focus the version list (highlights the newest installable version).
 - **←** — return focus to the plugin list.
-- **enter** — apply the highlighted version: check out that commit in the
-  plugin's clone and repin it in `lazy-lock.json`.
+- **enter** — apply the highlighted version: repin it in `lazy-lock.json` and
+  let lazy.vim check it out.
 - **q** / **esc** — quit.
 
 Highlighting a plugin lists the versions it can update to, newest first, all
 newer than the installed version and all old enough to satisfy the minimum
 release age. Highlighting a version shows every change pulled in by updating to
 it — the cumulative changelog from the current version through the selected one.
-Pressing **enter** on a version performs the update: dry-dock checks out that
-commit in the plugin's clone and rewrites `lazy-lock.json` to pin it, matching
-lazy.vim's own lock format.
+
+Pressing **enter** on a version performs the update: dry-dock rewrites
+`lazy-lock.json` to pin the chosen commit (matching lazy.vim's own lock format),
+then runs `nvim --headless "+Lazy! restore <plugin>" +qa` so lazy.vim performs
+the checkout through its own pipeline — installing new dependencies and running
+build steps. dry-dock deliberately does not `git checkout` the clone itself: a
+raw checkout skips lazy's pipeline and can leave a plugin broken (e.g. a version
+bump that pulls in a new dependency). Once applied, the version drops out of the
+list and the changelog reflects the plugin's new position.
 
 ## Usage
 

@@ -47,13 +47,6 @@ func Fetch(dir string) error {
 	return err
 }
 
-// Checkout moves the clone's working tree to sha, the way lazy.vim pins a
-// plugin to a detached commit.
-func Checkout(dir, sha string) error {
-	_, err := gitOutput(dir, "checkout", "--quiet", sha)
-	return err
-}
-
 func gitOutput(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

@@ -1,10 +1,16 @@
 Feature: Applying an update
-  The updater moves a plugin's clone to a chosen commit and repins it in the
-  lock file, so selecting a version in the TUI actually performs the update.
+  The updater repins the plugin in lazy.vim's lock file and then asks lazy.vim
+  itself to check the commit out, so dependency installs and build steps run
+  through lazy's own pipeline instead of a raw git checkout.
 
-  Scenario: Apply checks out the commit and repins the lock file
-    Given a plugin clone "telescope.nvim" on branch "master" with commits "first, second, third"
-    And a lock file pinning "telescope.nvim" to its "first" commit
-    When I apply the update for "telescope.nvim" to its "third" commit
-    Then the clone "telescope.nvim" HEAD is at its "third" commit
-    And the lock file pins "telescope.nvim" to its "third" commit
+  Scenario: Apply repins the lock file and drives lazy.vim to restore
+    Given a lock file pinning "telescope.nvim" to commit "oldsha"
+    When I apply the update for "telescope.nvim" to commit "newsha"
+    Then the lock file pins "telescope.nvim" to commit "newsha"
+    And lazy.vim was asked to restore "telescope.nvim"
+
+  Scenario: A lock file write failure skips the restore
+    Given no lock file exists
+    When I apply the update for "telescope.nvim" to commit "newsha"
+    Then the update fails
+    And lazy.vim was not asked to restore
