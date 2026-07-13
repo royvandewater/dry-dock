@@ -3,11 +3,26 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/royvandewater/dry-dock/internal/plugin"
 )
+
+// Applier performs an update: it moves the named plugin to the given commit
+// SHA, both on disk and in lazy.vim's lock file.
+type Applier interface {
+	Apply(pluginName, sha string) error
+}
+
+// applyResultMsg reports the outcome of an Applier.Apply call back into the
+// update loop.
+type applyResultMsg struct {
+	pluginName string
+	sha        string
+	err        error
+}
 
 type focus int
 
@@ -23,6 +38,10 @@ type Model struct {
 	plugins []plugin.Plugin
 	now     time.Time
 	minAge  time.Duration
+	applier Applier
+
+	// status is a one-line message describing the last update attempt.
+	status string
 
 	focus      focus
 	pluginIdx  int
@@ -40,6 +59,12 @@ type Model struct {
 // minimum-release-age filter applied to each plugin's versions.
 func New(plugins []plugin.Plugin, now time.Time, minAge time.Duration) Model {
 	return Model{plugins: plugins, now: now, minAge: minAge}
+}
+
+// WithApplier returns a copy of the model that performs updates through a.
+func (m Model) WithApplier(a Applier) Model {
+	m.applier = a
+	return m
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -92,6 +117,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case applyResultMsg:
+		if msg.err != nil {
+			m.status = fmt.Sprintf("update failed: %s → %s: %v", msg.pluginName, shortSHA(msg.sha), msg.err)
+		} else {
+			m.status = fmt.Sprintf("updated %s → %s", msg.pluginName, shortSHA(msg.sha))
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -108,12 +140,34 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(-1)
 	case tea.KeyDown:
 		m.moveSelection(1)
+	case tea.KeyEnter:
+		return m, m.applySelected()
 	default:
 		if msg.String() == "q" {
 			return m, tea.Quit
 		}
 	}
 	return m, nil
+}
+
+// applySelected returns a command that applies the highlighted version to the
+// selected plugin. It's a no-op when no version is selected or no applier is
+// wired in.
+func (m *Model) applySelected() tea.Cmd {
+	if m.applier == nil {
+		return nil
+	}
+	sel, ok := m.SelectedVersion()
+	if !ok {
+		return nil
+	}
+	name := m.SelectedPlugin().Name
+	applier := m.applier
+	m.status = fmt.Sprintf("updating %s → %s…", name, shortSHA(sel.SHA))
+	return func() tea.Msg {
+		err := applier.Apply(name, sel.SHA)
+		return applyResultMsg{pluginName: name, sha: sel.SHA, err: err}
+	}
 }
 
 // focusNext moves focus rightward (plugins → versions → changes), only

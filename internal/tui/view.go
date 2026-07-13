@@ -69,7 +69,7 @@ func (m Model) render() string {
 
 	l := m.layout()
 	header := m.renderHeader()
-	footer := helpStyle.Render(m.helpText())
+	footer := m.renderFooter()
 
 	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, m.focus == focusPlugins)
 	versions := m.pane(m.versionContent(l), versionPaneWidth, l, m.focus == focusVersions)
@@ -176,12 +176,21 @@ func (m Model) renderHeader() string {
 		dimStyle.Render(fmt.Sprintf("  ·  minimum release age: %s  ·  %d plugin(s) with updates", age, len(m.plugins)))
 }
 
+// renderFooter shows the last update status when there is one, otherwise the
+// context-sensitive key hints.
+func (m Model) renderFooter() string {
+	if m.status != "" {
+		return titleStyle.Render(m.status)
+	}
+	return helpStyle.Render(m.helpText())
+}
+
 func (m Model) helpText() string {
 	switch m.focus {
 	case focusChanges:
-		return "↑/↓ scroll changes  ·  ← versions  ·  q quit"
+		return "↑/↓ scroll changes  ·  enter update  ·  ← versions  ·  q quit"
 	case focusVersions:
-		return "↑/↓ version  ·  → changes  ·  ← plugins  ·  q quit"
+		return "↑/↓ version  ·  enter update  ·  → changes  ·  ← plugins  ·  q quit"
 	default:
 		return "↑/↓ plugin  ·  → versions  ·  q quit"
 	}

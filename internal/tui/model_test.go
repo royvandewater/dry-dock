@@ -75,6 +75,20 @@ var keys = map[string]tea.KeyType{
 	"down":  tea.KeyDown,
 	"left":  tea.KeyLeft,
 	"right": tea.KeyRight,
+	"enter": tea.KeyEnter,
+}
+
+// recordingUpdater is a test double for the Applier the model calls to perform
+// an update. It records the last request and returns a configurable error.
+type recordingUpdater struct {
+	plugin, sha string
+	called      bool
+	err         error
+}
+
+func (u *recordingUpdater) Apply(plugin, sha string) error {
+	u.plugin, u.sha, u.called = plugin, sha, true
+	return u.err
 }
 
 var focusNames = map[string]focus{
@@ -84,12 +98,15 @@ var focusNames = map[string]focus{
 }
 
 type tuiWorld struct {
-	model Model
+	model   Model
+	updater *recordingUpdater
+	lastCmd tea.Cmd
 }
 
 func (w *tuiWorld) send(msg tea.Msg) {
-	next, _ := w.model.Update(msg)
+	next, cmd := w.model.Update(msg)
 	w.model = next.(Model)
+	w.lastCmd = cmd
 }
 
 func (w *tuiWorld) theSampleModel() error {
@@ -99,6 +116,44 @@ func (w *tuiWorld) theSampleModel() error {
 
 func (w *tuiWorld) theLongChangelogModel() error {
 	w.model = longChangelog()
+	return nil
+}
+
+func (w *tuiWorld) theSampleModelWithARecordingUpdater() error {
+	w.updater = &recordingUpdater{}
+	w.model = sample().WithApplier(w.updater)
+	return nil
+}
+
+func (w *tuiWorld) theSampleModelWithAFailingUpdater() error {
+	w.updater = &recordingUpdater{err: fmt.Errorf("boom")}
+	w.model = sample().WithApplier(w.updater)
+	return nil
+}
+
+func (w *tuiWorld) iProcessPendingCommands() error {
+	if w.lastCmd == nil {
+		return fmt.Errorf("no pending command to process")
+	}
+	w.send(w.lastCmd())
+	return nil
+}
+
+func (w *tuiWorld) theUpdaterApplied(plugin, sha string) error {
+	if !w.updater.called {
+		return fmt.Errorf("expected the updater to be called")
+	}
+	if w.updater.plugin != plugin || w.updater.sha != sha {
+		return fmt.Errorf("expected apply(%q, %q), got apply(%q, %q)",
+			plugin, sha, w.updater.plugin, w.updater.sha)
+	}
+	return nil
+}
+
+func (w *tuiWorld) theStatusContains(substr string) error {
+	if !strings.Contains(w.model.status, substr) {
+		return fmt.Errorf("expected status to contain %q, got %q", substr, w.model.status)
+	}
 	return nil
 }
 
@@ -224,6 +279,11 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^the sample model$`, w.theSampleModel)
+	sc.Step(`^the sample model with a recording updater$`, w.theSampleModelWithARecordingUpdater)
+	sc.Step(`^the sample model with a failing updater$`, w.theSampleModelWithAFailingUpdater)
+	sc.Step(`^I process pending commands$`, w.iProcessPendingCommands)
+	sc.Step(`^the updater applied "([^"]*)" at "([^"]*)"$`, w.theUpdaterApplied)
+	sc.Step(`^the status contains "([^"]*)"$`, w.theStatusContains)
 	sc.Step(`^the long-changelog model$`, w.theLongChangelogModel)
 	sc.Step(`^a window size of (\d+) by (\d+)$`, w.aWindowSizeOf)
 	sc.Step(`^I press "([^"]*)" (\d+) times$`, w.iPressTimes)
