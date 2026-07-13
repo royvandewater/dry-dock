@@ -20,8 +20,8 @@ func sample() Model {
 		Name:    "telescope.nvim",
 		Current: plugin.Version{SHA: "telCur", Subject: "current"},
 		Candidates: []plugin.Version{
-			{SHA: "telC", Subject: "youngest", Date: now.Add(-2 * day)},  // too young
-			{SHA: "telB", Subject: "middle", Date: now.Add(-30 * day)},   // ok
+			{SHA: "telC", Subject: "youngest", Date: now.Add(-2 * day)},    // too young
+			{SHA: "telB", Subject: "middle", Date: now.Add(-30 * day)},     // ok
 			{SHA: "telA", Subject: "oldest new", Date: now.Add(-60 * day)}, // ok
 		},
 	}
