@@ -3,6 +3,7 @@ module github.com/royvandewater/dry-dock
 go 1.26.2
 
 require (
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cucumber/godog v0.15.1

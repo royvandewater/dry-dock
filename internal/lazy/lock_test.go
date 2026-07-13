@@ -3,6 +3,8 @@ package lazy
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,6 +28,9 @@ func TestFeatures(t *testing.T) {
 type lockWorld struct {
 	doc    string
 	locked []Locked
+	result string
+	path   string
+	commit string
 }
 
 func (w *lockWorld) find(name string) (Locked, error) {
@@ -44,6 +49,65 @@ func (w *lockWorld) aLazyLockDocument(doc *godog.DocString) error {
 
 func (w *lockWorld) iParseTheLockDocument() error {
 	locked, err := ParseLock(strings.NewReader(w.doc))
+	if err != nil {
+		return err
+	}
+	w.locked = locked
+	return nil
+}
+
+func (w *lockWorld) iSetCommitTo(name, commit string) error {
+	result, err := SetCommit(w.doc, name, commit)
+	if err != nil {
+		return err
+	}
+	w.result = result
+	return nil
+}
+
+func (w *lockWorld) theResultingDocumentIs(doc *godog.DocString) error {
+	if got := strings.TrimSpace(w.result); got != strings.TrimSpace(doc.Content) {
+		return fmt.Errorf("expected document:\n%s\ngot:\n%s", doc.Content, got)
+	}
+	return nil
+}
+
+func (w *lockWorld) aLockFileContaining(doc *godog.DocString) error {
+	dir, err := os.MkdirTemp("", "lock-feature-*")
+	if err != nil {
+		return err
+	}
+	w.path = filepath.Join(dir, "lazy-lock.json")
+	return os.WriteFile(w.path, []byte(doc.Content), 0o644)
+}
+
+func (w *lockWorld) iReadTheCommitForFromTheFile(name string) error {
+	commit, err := CommitFor(w.path, name)
+	if err != nil {
+		return err
+	}
+	w.commit = commit
+	return nil
+}
+
+func (w *lockWorld) theCommitReadIs(commit string) error {
+	if w.commit != commit {
+		return fmt.Errorf("expected commit %q, got %q", commit, w.commit)
+	}
+	return nil
+}
+
+func (w *lockWorld) iUpdateCommitInTheFile(name, commit string) error {
+	return UpdateFile(w.path, name, commit)
+}
+
+func (w *lockWorld) iParseTheLockFile() error {
+	f, err := os.Open(w.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	locked, err := ParseLock(f)
 	if err != nil {
 		return err
 	}
@@ -86,9 +150,22 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 		*w = lockWorld{}
 		return ctx, nil
 	})
+	sc.After(func(ctx context.Context, s *godog.Scenario, err error) (context.Context, error) {
+		if w.path != "" {
+			os.RemoveAll(filepath.Dir(w.path))
+		}
+		return ctx, nil
+	})
 
 	sc.Step(`^a lazy-lock\.json document:$`, w.aLazyLockDocument)
 	sc.Step(`^I parse the lock document$`, w.iParseTheLockDocument)
+	sc.Step(`^I set "([^"]*)" commit to "([^"]*)"$`, w.iSetCommitTo)
+	sc.Step(`^the resulting document is:$`, w.theResultingDocumentIs)
+	sc.Step(`^a lock file containing:$`, w.aLockFileContaining)
+	sc.Step(`^I read the commit for "([^"]*)" from the file$`, w.iReadTheCommitForFromTheFile)
+	sc.Step(`^the commit read is "([^"]*)"$`, w.theCommitReadIs)
+	sc.Step(`^I update "([^"]*)" commit to "([^"]*)" in the file$`, w.iUpdateCommitInTheFile)
+	sc.Step(`^I parse the lock file$`, w.iParseTheLockFile)
 	sc.Step(`^there are (\d+) locked plugins$`, w.thereAreLockedPlugins)
 	sc.Step(`^the locked plugin "([^"]*)" has branch "([^"]*)"$`, w.theLockedPluginHasBranch)
 	sc.Step(`^the locked plugin "([^"]*)" has commit "([^"]*)"$`, w.theLockedPluginHasCommit)

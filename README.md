@@ -37,12 +37,42 @@ Three panes, driven entirely by the arrow keys:
 - **↑ / ↓** — move the highlight in the focused pane.
 - **→** — focus the version list (highlights the newest installable version).
 - **←** — return focus to the plugin list.
-- **q** / **esc** — quit.
+- **enter** — apply the highlighted version: repin it in `lazy-lock.json` and
+  let lazy.vim check it out.
+- **esc** — dismiss the update status message (restoring the key hints).
+- **q** / **ctrl-c** — quit.
 
 Highlighting a plugin lists the versions it can update to, newest first, all
 newer than the installed version and all old enough to satisfy the minimum
 release age. Highlighting a version shows every change pulled in by updating to
 it — the cumulative changelog from the current version through the selected one.
+Commits that announce a breaking change (a Conventional Commits `!` marker or
+`BREAKING CHANGE`) are tagged **⚠ BREAKING** in the changelog.
+
+### Version constraints
+
+If a plugin's lazy.vim spec pins a version range (e.g. `version = '1.*'`),
+dry-dock respects it: the version list shows only the release **tags** that
+satisfy the constraint, so a `1.*` plugin never offers `2.x`. dry-dock reads the
+constraints straight from lazy.vim (via a headless `nvim`), so they match
+exactly what lazy resolves. When newer releases exist outside the range, the
+Versions pane notes how many (**⚠ N newer releases outside 1.\***) so you know an
+upgrade is available but gated by your own pin. Plugins without a `version`
+matcher are tracked commit-by-commit as before.
+
+Pressing **enter** on a version performs the update: dry-dock rewrites
+`lazy-lock.json` to pin the chosen commit (matching lazy.vim's own lock format),
+then runs `nvim --headless "+Lazy! restore <plugin>" +qa` so lazy.vim performs
+the checkout through its own pipeline — installing new dependencies and running
+build steps. dry-dock deliberately does not `git checkout` the clone itself: a
+raw checkout skips lazy's pipeline and can leave a plugin broken (e.g. a version
+bump that pulls in a new dependency).
+
+After the checkout, dry-dock loads the plugin in a headless nvim to confirm it
+still works. If nvim reports an error, dry-dock **rolls the plugin back** to the
+commit it was on before and reports the failure — so a breaking update can't
+leave your editor unusable. On success, the version drops out of the list and
+the changelog reflects the plugin's new position.
 
 ## Usage
 

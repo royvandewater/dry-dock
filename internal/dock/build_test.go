@@ -3,6 +3,7 @@ package dock
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -29,6 +30,7 @@ func TestFeatures(t *testing.T) {
 type fakeSource struct {
 	current    map[string]plugin.Version
 	candidates map[string][]plugin.Version
+	tags       map[string][]plugin.Version
 }
 
 func (f fakeSource) Current(dir, sha string) (plugin.Version, error) {
@@ -39,11 +41,27 @@ func (f fakeSource) Candidates(dir, from, ref string) ([]plugin.Version, error) 
 	return f.candidates[dir], nil
 }
 
+func (f fakeSource) Tags(dir string) ([]plugin.Version, error) {
+	return f.tags[dir], nil
+}
+
+func (f fakeSource) Describe(dir, sha string) (string, error) {
+	return "", nil
+}
+
 type buildWorld struct {
 	installDir string
 	locked     []lazy.Locked
 	src        fakeSource
+	matchers   map[string]string
 	plugins    []plugin.Plugin
+
+	tmp      string
+	lockPath string
+
+	restored       []string
+	breakingCommit string
+	applyErr       error
 }
 
 func (w *buildWorld) dir(name string) string {
@@ -79,8 +97,29 @@ func (w *buildWorld) offersNoCandidates(name string) error {
 	return nil
 }
 
+func (w *buildWorld) offersTagsFor(name string, table *godog.Table) error {
+	var tags []plugin.Version
+	for _, row := range table.Rows[1:] {
+		tags = append(tags, plugin.Version{SHA: row.Cells[1].Value, Tag: row.Cells[0].Value})
+	}
+	w.src.tags[w.dir(name)] = tags
+	return nil
+}
+
+func (w *buildWorld) hasVersionConstraint(name, constraint string) error {
+	w.matchers[name] = constraint
+	return nil
+}
+
+func (w *buildWorld) pluginHasReleasesOutsideItsConstraint(n, count int) error {
+	if got := w.plugins[n-1].OutOfScope; got != count {
+		return fmt.Errorf("expected plugin %d to have %d releases outside its constraint, got %d", n, count, got)
+	}
+	return nil
+}
+
 func (w *buildWorld) iBuildThePluginList() error {
-	plugins, err := Build(w.installDir, w.locked, w.src)
+	plugins, err := Build(w.installDir, w.locked, w.matchers, w.src)
 	if err != nil {
 		return err
 	}
@@ -124,6 +163,104 @@ func (w *buildWorld) pluginHasCandidateShas(n int, list string) error {
 	return nil
 }
 
+func (w *buildWorld) tmpDir() (string, error) {
+	if w.tmp == "" {
+		tmp, err := os.MkdirTemp("", "dock-update-*")
+		if err != nil {
+			return "", err
+		}
+		w.tmp = tmp
+		w.lockPath = filepath.Join(tmp, "lazy-lock.json")
+	}
+	return w.tmp, nil
+}
+
+func (w *buildWorld) aLockFilePinningToCommit(name, commit string) error {
+	if _, err := w.tmpDir(); err != nil {
+		return err
+	}
+	doc := fmt.Sprintf("{\n  %q: { \"branch\": \"master\", \"commit\": %q }\n}\n", name, commit)
+	return os.WriteFile(w.lockPath, []byte(doc), 0o644)
+}
+
+func (w *buildWorld) noLockFileExists() error {
+	_, err := w.tmpDir()
+	return err
+}
+
+func (w *buildWorld) commitBreaksNvim(commit string) error {
+	w.breakingCommit = commit
+	return nil
+}
+
+func (w *buildWorld) iApplyTheUpdateToCommit(name, commit string) error {
+	if _, err := w.tmpDir(); err != nil {
+		return err
+	}
+	u := Updater{
+		Config:  Config{LockPath: w.lockPath},
+		Restore: func(pluginName string) error { w.restored = append(w.restored, pluginName); return nil },
+		// HealthCheck reads whatever the lock file currently pins and treats the
+		// designated commit as broken, mirroring "the new version breaks nvim".
+		HealthCheck: func(pluginName string) error {
+			c, err := lazy.CommitFor(w.lockPath, pluginName)
+			if err != nil {
+				return err
+			}
+			if w.breakingCommit != "" && c == w.breakingCommit {
+				return fmt.Errorf("nvim broke on %s", c)
+			}
+			return nil
+		},
+	}
+	w.applyErr = u.Apply(name, commit)
+	return nil
+}
+
+func (w *buildWorld) theLockFilePinsCommit(name, commit string) error {
+	f, err := os.Open(w.lockPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	locked, err := lazy.ParseLock(f)
+	if err != nil {
+		return err
+	}
+	for _, l := range locked {
+		if l.Name == name {
+			if l.Commit != commit {
+				return fmt.Errorf("expected %q pinned to %q, got %q", name, commit, l.Commit)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("plugin %q not in lock file", name)
+}
+
+func (w *buildWorld) lazyWasAskedToRestore(name string) error {
+	for _, r := range w.restored {
+		if r == name {
+			return nil
+		}
+	}
+	return fmt.Errorf("expected lazy.vim to restore %q, got %v", name, w.restored)
+}
+
+func (w *buildWorld) lazyWasNotAskedToRestore() error {
+	if len(w.restored) != 0 {
+		return fmt.Errorf("expected no restore, got %v", w.restored)
+	}
+	return nil
+}
+
+func (w *buildWorld) theUpdateFails() error {
+	if w.applyErr == nil {
+		return fmt.Errorf("expected the update to fail, got nil error")
+	}
+	return nil
+}
+
 func InitializeScenario(sc *godog.ScenarioContext) {
 	w := &buildWorld{}
 	sc.Before(func(ctx context.Context, s *godog.Scenario) (context.Context, error) {
@@ -131,12 +268,28 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 			src: fakeSource{
 				current:    map[string]plugin.Version{},
 				candidates: map[string][]plugin.Version{},
+				tags:       map[string][]plugin.Version{},
 			},
+			matchers: map[string]string{},
+		}
+		return ctx, nil
+	})
+	sc.After(func(ctx context.Context, s *godog.Scenario, err error) (context.Context, error) {
+		if w.tmp != "" {
+			os.RemoveAll(w.tmp)
 		}
 		return ctx, nil
 	})
 
 	sc.Step(`^the install dir "([^"]*)"$`, w.theInstallDir)
+	sc.Step(`^a lock file pinning "([^"]*)" to commit "([^"]*)"$`, w.aLockFilePinningToCommit)
+	sc.Step(`^commit "([^"]*)" breaks nvim$`, w.commitBreaksNvim)
+	sc.Step(`^no lock file exists$`, w.noLockFileExists)
+	sc.Step(`^I apply the update for "([^"]*)" to commit "([^"]*)"$`, w.iApplyTheUpdateToCommit)
+	sc.Step(`^the lock file pins "([^"]*)" to commit "([^"]*)"$`, w.theLockFilePinsCommit)
+	sc.Step(`^lazy\.vim was asked to restore "([^"]*)"$`, w.lazyWasAskedToRestore)
+	sc.Step(`^lazy\.vim was not asked to restore$`, w.lazyWasNotAskedToRestore)
+	sc.Step(`^the update fails$`, w.theUpdateFails)
 	sc.Step(`^a locked plugin "([^"]*)" on branch "([^"]*)" at commit "([^"]*)"$`, w.aLockedPlugin)
 	sc.Step(`^the source reports current version "([^"]*)" for "([^"]*)"$`, w.currentVersionFor)
 	sc.Step(`^the source offers candidates "([^"]*)" for "([^"]*)"$`, w.offersCandidates)
@@ -147,4 +300,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^plugin (\d+) is named "([^"]*)"$`, w.pluginIsNamed)
 	sc.Step(`^plugin (\d+) has current sha "([^"]*)"$`, w.pluginHasCurrentSha)
 	sc.Step(`^plugin (\d+) has candidate shas "([^"]*)"$`, w.pluginHasCandidateShas)
+	sc.Step(`^the source offers tags for "([^"]*)":$`, w.offersTagsFor)
+	sc.Step(`^"([^"]*)" has version constraint "([^"]*)"$`, w.hasVersionConstraint)
+	sc.Step(`^plugin (\d+) has (\d+) release outside its constraint$`, w.pluginHasReleasesOutsideItsConstraint)
+	sc.Step(`^plugin (\d+) has (\d+) releases outside its constraint$`, w.pluginHasReleasesOutsideItsConstraint)
 }

@@ -26,6 +26,7 @@ var (
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	shaStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	warningStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("203"))
 )
 
 // layout holds the derived pane geometry for the current window size.
@@ -69,7 +70,7 @@ func (m Model) render() string {
 
 	l := m.layout()
 	header := m.renderHeader()
-	footer := helpStyle.Render(m.helpText())
+	footer := m.renderFooter()
 
 	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, m.focus == focusPlugins)
 	versions := m.pane(m.versionContent(l), versionPaneWidth, l, m.focus == focusVersions)
@@ -98,15 +99,44 @@ func (m Model) pluginContent(l layout) string {
 }
 
 func (m Model) versionContent(l layout) string {
+	p := m.SelectedPlugin()
 	lines := m.versionBodyLines()
-	if len(lines) == 0 {
-		return titleStyle.Render("Versions") + "\n" + dimStyle.Render("(none old enough)")
+
+	// When the plugin pins a version range, note the newer releases hidden
+	// because they fall outside it. The note costs one row of the list window.
+	note := ""
+	if p.Constraint != "" && p.OutOfScope > 0 {
+		unit := "release"
+		if p.OutOfScope > 1 {
+			unit = "releases"
+		}
+		note = warningStyle.Render(fmt.Sprintf("⚠ %d newer %s outside %s", p.OutOfScope, unit, p.Constraint))
 	}
+	rows := l.listRows
+	if note != "" {
+		rows = max(1, rows-1)
+	}
+
+	if len(lines) == 0 {
+		empty := "(none old enough)"
+		if p.Constraint != "" {
+			empty = "(no newer release within " + p.Constraint + ")"
+		}
+		body := dimStyle.Render(empty)
+		if note != "" {
+			body = note + "\n" + body
+		}
+		return titleStyle.Render("Versions") + "\n" + body
+	}
+
 	// Each version occupies two lines; keep the selected pair in view.
-	offset := follow(m.versionIdx*2, len(lines), l.listRows)
-	body := window(lines, offset, l.listRows)
-	return titleStyle.Render(scrollTitle("Versions", offset, len(lines), l.listRows)) + "\n" +
-		strings.Join(body, "\n")
+	offset := follow(m.versionIdx*2, len(lines), rows)
+	body := window(lines, offset, rows)
+	out := titleStyle.Render(scrollTitle("Versions", offset, len(lines), rows)) + "\n"
+	if note != "" {
+		out += note + "\n"
+	}
+	return out + strings.Join(body, "\n")
 }
 
 func (m Model) changesContent(l layout) string {
@@ -141,16 +171,29 @@ func (m Model) pluginBodyLines() []string {
 }
 
 func (m Model) versionBodyLines() []string {
+	p := m.SelectedPlugin()
 	visible := m.VisibleVersions()
 	lines := make([]string, 0, len(visible)*2)
 	for i, v := range visible {
-		label := fmt.Sprintf("%s  %s", shortSHA(v.SHA), relativeDate(v.Date, m.now))
+		id := shortSHA(v.SHA)
+		if v.Tag != "" {
+			id = v.Tag
+		}
+		text := fmt.Sprintf("%s  %s", id, relativeDate(v.Date, m.now))
+		breaking := p.IncludesBreaking(v.SHA)
 		subject := truncate(v.Subject, versionPaneWidth-2)
+		var label string
 		if m.focus == focusVersions && i == m.versionIdx {
-			label = selectedStyle.Render(padRight(label, versionPaneWidth-2))
+			if breaking {
+				text += "  ⚠"
+			}
+			label = selectedStyle.Render(padRight(text, versionPaneWidth-2))
 			subject = selectedStyle.Render(padRight("  "+subject, versionPaneWidth-2))
 		} else {
-			label = shaStyle.Render(label)
+			label = shaStyle.Render(text)
+			if breaking {
+				label += "  " + warningStyle.Render("⚠")
+			}
 			subject = "  " + dimStyle.Render(subject)
 		}
 		lines = append(lines, label, subject)
@@ -161,7 +204,11 @@ func (m Model) versionBodyLines() []string {
 func (m Model) changesBodyLines(width int) []string {
 	var lines []string
 	for _, c := range m.SelectedChanges() {
-		lines = append(lines, shaStyle.Render(fmt.Sprintf("%s  %s", shortSHA(c.SHA), c.Date.Format("2006-01-02"))))
+		head := shaStyle.Render(fmt.Sprintf("%s  %s", shortSHA(c.SHA), c.Date.Format("2006-01-02")))
+		if c.Breaking() {
+			head += "  " + warningStyle.Render("⚠ BREAKING")
+		}
+		lines = append(lines, head)
 		for _, line := range wrap(c.Subject, width-2) {
 			lines = append(lines, "  "+line)
 		}
@@ -176,12 +223,28 @@ func (m Model) renderHeader() string {
 		dimStyle.Render(fmt.Sprintf("  ·  minimum release age: %s  ·  %d plugin(s) with updates", age, len(m.plugins)))
 }
 
+// renderFooter shows the last update status when there is one, otherwise the
+// context-sensitive key hints. The status is truncated to the window width so a
+// long (or multi-line) error can never overrun the single-line footer.
+func (m Model) renderFooter() string {
+	if m.status != "" {
+		style := titleStyle
+		if m.statusErr {
+			style = warningStyle
+		}
+		hint := "  ·  esc dismiss"
+		text := truncate(m.status, m.width-lipgloss.Width(hint))
+		return style.Render(text) + helpStyle.Render(hint)
+	}
+	return helpStyle.Render(m.helpText())
+}
+
 func (m Model) helpText() string {
 	switch m.focus {
 	case focusChanges:
-		return "↑/↓ scroll changes  ·  ← versions  ·  q quit"
+		return "↑/↓ scroll changes  ·  enter update  ·  ← versions  ·  q quit"
 	case focusVersions:
-		return "↑/↓ version  ·  → changes  ·  ← plugins  ·  q quit"
+		return "↑/↓ version  ·  enter update  ·  → changes  ·  ← plugins  ·  q quit"
 	default:
 		return "↑/↓ plugin  ·  → versions  ·  q quit"
 	}

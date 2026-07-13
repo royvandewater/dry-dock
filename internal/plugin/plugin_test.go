@@ -26,10 +26,15 @@ func TestFeatures(t *testing.T) {
 }
 
 type pluginWorld struct {
-	now    time.Time
-	minAge time.Duration
-	plugin Plugin
-	result []Version
+	now         time.Time
+	minAge      time.Duration
+	plugin      Plugin
+	result      []Version
+	version     Version
+	tagVersions []Version
+	currentTag  string
+	constraint  string
+	outside     int
 }
 
 func splitList(s string) []string {
@@ -88,6 +93,85 @@ func (w *pluginWorld) aPluginWithCandidates(table *godog.Table) error {
 	return nil
 }
 
+func (w *pluginWorld) aCommitWithSubject(subject string) error {
+	w.version = Version{Subject: subject}
+	return nil
+}
+
+func (w *pluginWorld) theCommitIsBreaking() error {
+	if !w.version.Breaking() {
+		return fmt.Errorf("expected %q to be breaking", w.version.Subject)
+	}
+	return nil
+}
+
+func (w *pluginWorld) theCommitIsNotBreaking() error {
+	if w.version.Breaking() {
+		return fmt.Errorf("expected %q not to be breaking", w.version.Subject)
+	}
+	return nil
+}
+
+func (w *pluginWorld) tags(list string) error {
+	for _, t := range splitList(list) {
+		w.tagVersions = append(w.tagVersions, Version{SHA: t, Tag: t})
+	}
+	return nil
+}
+
+func (w *pluginWorld) tagReleases(table *godog.Table) error {
+	for _, row := range table.Rows[1:] {
+		w.tagVersions = append(w.tagVersions, Version{SHA: row.Cells[1].Value, Tag: row.Cells[0].Value})
+	}
+	return nil
+}
+
+func (w *pluginWorld) theCurrentTagIs(tag string) error {
+	w.currentTag = tag
+	return nil
+}
+
+func (w *pluginWorld) theCurrentCommitIs(sha string) error {
+	w.currentTag = sha
+	return nil
+}
+
+func (w *pluginWorld) theVersionConstraintIs(constraint string) error {
+	w.constraint = constraint
+	return nil
+}
+
+func (w *pluginWorld) iSelectTheInRangeVersions() error {
+	inRange, outside, err := SelectInRange(w.tagVersions, w.constraint, w.currentTag, "")
+	if err != nil {
+		return err
+	}
+	w.result = inRange
+	w.outside = outside
+	return nil
+}
+
+func (w *pluginWorld) thereAreNewerReleasesOutsideTheRange(n int) error {
+	if w.outside != n {
+		return fmt.Errorf("expected %d newer releases outside the range, got %d", n, w.outside)
+	}
+	return nil
+}
+
+func (w *pluginWorld) updatingToIncludesABreakingChange(sha string) error {
+	if !w.plugin.IncludesBreaking(sha) {
+		return fmt.Errorf("expected updating to %q to include a breaking change", sha)
+	}
+	return nil
+}
+
+func (w *pluginWorld) updatingToDoesNotIncludeABreakingChange(sha string) error {
+	if w.plugin.IncludesBreaking(sha) {
+		return fmt.Errorf("expected updating to %q not to include a breaking change", sha)
+	}
+	return nil
+}
+
 func (w *pluginWorld) iRequestTheChangesUpToIndex(i int) error {
 	w.result = w.plugin.ChangesUpTo(i)
 	return nil
@@ -118,6 +202,19 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a minimum release age of (\d+) days$`, w.aMinimumReleaseAgeOfDays)
 	sc.Step(`^a plugin whose candidates newest-first are "([^"]*)"$`, w.aPluginWhoseCandidatesNewestFirstAre)
 	sc.Step(`^a plugin with candidates:$`, w.aPluginWithCandidates)
+	sc.Step(`^a commit with subject "([^"]*)"$`, w.aCommitWithSubject)
+	sc.Step(`^the commit is breaking$`, w.theCommitIsBreaking)
+	sc.Step(`^the commit is not breaking$`, w.theCommitIsNotBreaking)
+	sc.Step(`^updating to "([^"]*)" includes a breaking change$`, w.updatingToIncludesABreakingChange)
+	sc.Step(`^updating to "([^"]*)" does not include a breaking change$`, w.updatingToDoesNotIncludeABreakingChange)
+	sc.Step(`^tags "([^"]*)"$`, w.tags)
+	sc.Step(`^tag releases:$`, w.tagReleases)
+	sc.Step(`^the current tag is "([^"]*)"$`, w.theCurrentTagIs)
+	sc.Step(`^the current commit is "([^"]*)"$`, w.theCurrentCommitIs)
+	sc.Step(`^the version constraint is "([^"]*)"$`, w.theVersionConstraintIs)
+	sc.Step(`^I select the in-range versions$`, w.iSelectTheInRangeVersions)
+	sc.Step(`^there is (\d+) newer release outside the range$`, w.thereAreNewerReleasesOutsideTheRange)
+	sc.Step(`^there are (\d+) newer releases outside the range$`, w.thereAreNewerReleasesOutsideTheRange)
 	sc.Step(`^I request the changes up to index (\d+)$`, w.iRequestTheChangesUpToIndex)
 	sc.Step(`^I compute the installable versions$`, w.iComputeTheInstallableVersions)
 	sc.Step(`^the resulting shas are "([^"]*)"$`, w.theResultingShasAre)

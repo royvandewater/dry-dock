@@ -15,3 +15,11 @@ Feature: Reading git history as plugin versions
     When I read the commit for "second"
     Then the commit subject is "second"
     And the commit sha is the sha of commit "second"
+
+  Scenario: Tags lists release tags with the commit they point at
+    Given a tag "v1.0.0" on commit "first"
+    And a tag "v1.1.0" on commit "third"
+    When I list the tags
+    Then there are 2 tags
+    And tag "v1.0.0" points at commit "first"
+    And tag "v1.1.0" points at commit "third"
