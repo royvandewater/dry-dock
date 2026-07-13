@@ -31,3 +31,14 @@ Feature: Parsing lazy-lock.json
         "telescope.nvim": { "branch": "master", "commit": "keepme" }
       }
       """
+
+  Scenario: Updating a plugin's commit on disk
+    Given a lock file containing:
+      """
+      {
+        "blink.cmp": { "branch": "main", "commit": "old" }
+      }
+      """
+    When I update "blink.cmp" commit to "newsha" in the file
+    And I parse the lock file
+    Then the locked plugin "blink.cmp" has commit "newsha"

@@ -37,12 +37,17 @@ Three panes, driven entirely by the arrow keys:
 - **↑ / ↓** — move the highlight in the focused pane.
 - **→** — focus the version list (highlights the newest installable version).
 - **←** — return focus to the plugin list.
+- **enter** — apply the highlighted version: check out that commit in the
+  plugin's clone and repin it in `lazy-lock.json`.
 - **q** / **esc** — quit.
 
 Highlighting a plugin lists the versions it can update to, newest first, all
 newer than the installed version and all old enough to satisfy the minimum
 release age. Highlighting a version shows every change pulled in by updating to
 it — the cumulative changelog from the current version through the selected one.
+Pressing **enter** on a version performs the update: dry-dock checks out that
+commit in the plugin's clone and rewrites `lazy-lock.json` to pin it, matching
+lazy.vim's own lock format.
 
 ## Usage
 

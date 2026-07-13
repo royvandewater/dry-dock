@@ -3,6 +3,8 @@ package dock
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,6 +46,10 @@ type buildWorld struct {
 	locked     []lazy.Locked
 	src        fakeSource
 	plugins    []plugin.Plugin
+
+	tmp       string
+	lockPath  string
+	shaBySubj map[string]string
 }
 
 func (w *buildWorld) dir(name string) string {
@@ -124,6 +130,93 @@ func (w *buildWorld) pluginHasCandidateShas(n int, list string) error {
 	return nil
 }
 
+func (w *buildWorld) gitRun(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(cmd.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %v: %w\n%s", args, err, out)
+	}
+	return string(out), nil
+}
+
+func (w *buildWorld) aPluginCloneWithCommits(name, branch, subjects string) error {
+	tmp, err := os.MkdirTemp("", "dock-update-*")
+	if err != nil {
+		return err
+	}
+	w.tmp = tmp
+	w.installDir = filepath.Join(tmp, "install")
+	w.lockPath = filepath.Join(tmp, "lazy-lock.json")
+
+	dir := filepath.Join(w.installDir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if _, err := w.gitRun(dir, "init", "-q", "-b", branch); err != nil {
+		return err
+	}
+	for i, s := range strings.Split(subjects, ",") {
+		s = strings.TrimSpace(s)
+		if _, err := w.gitRun(dir, "commit", "-q", "--allow-empty",
+			"--date", "2020-01-0"+string(rune('1'+i))+"T00:00:00", "-m", s); err != nil {
+			return err
+		}
+		head, err := w.gitRun(dir, "rev-parse", "HEAD")
+		if err != nil {
+			return err
+		}
+		w.shaBySubj[s] = head[:40]
+	}
+	return nil
+}
+
+func (w *buildWorld) aLockFilePinning(name, subject string) error {
+	doc := fmt.Sprintf("{\n  %q: { \"branch\": \"master\", \"commit\": %q }\n}\n", name, w.shaBySubj[subject])
+	return os.WriteFile(w.lockPath, []byte(doc), 0o644)
+}
+
+func (w *buildWorld) iApplyTheUpdate(name, subject string) error {
+	cfg := Config{LockPath: w.lockPath, InstallDir: w.installDir}
+	return Updater{Config: cfg}.Apply(name, w.shaBySubj[subject])
+}
+
+func (w *buildWorld) theCloneHeadIsAt(name, subject string) error {
+	head, err := w.gitRun(filepath.Join(w.installDir, name), "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	if got := head[:40]; got != w.shaBySubj[subject] {
+		return fmt.Errorf("expected HEAD at %q, got %q", w.shaBySubj[subject], got)
+	}
+	return nil
+}
+
+func (w *buildWorld) theLockFilePins(name, subject string) error {
+	f, err := os.Open(w.lockPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	locked, err := lazy.ParseLock(f)
+	if err != nil {
+		return err
+	}
+	for _, l := range locked {
+		if l.Name == name {
+			if l.Commit != w.shaBySubj[subject] {
+				return fmt.Errorf("expected %q pinned to %q, got %q", name, w.shaBySubj[subject], l.Commit)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("plugin %q not in lock file", name)
+}
+
 func InitializeScenario(sc *godog.ScenarioContext) {
 	w := &buildWorld{}
 	sc.Before(func(ctx context.Context, s *godog.Scenario) (context.Context, error) {
@@ -132,11 +225,23 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 				current:    map[string]plugin.Version{},
 				candidates: map[string][]plugin.Version{},
 			},
+			shaBySubj: map[string]string{},
+		}
+		return ctx, nil
+	})
+	sc.After(func(ctx context.Context, s *godog.Scenario, err error) (context.Context, error) {
+		if w.tmp != "" {
+			os.RemoveAll(w.tmp)
 		}
 		return ctx, nil
 	})
 
 	sc.Step(`^the install dir "([^"]*)"$`, w.theInstallDir)
+	sc.Step(`^a plugin clone "([^"]*)" on branch "([^"]*)" with commits "([^"]*)"$`, w.aPluginCloneWithCommits)
+	sc.Step(`^a lock file pinning "([^"]*)" to its "([^"]*)" commit$`, w.aLockFilePinning)
+	sc.Step(`^I apply the update for "([^"]*)" to its "([^"]*)" commit$`, w.iApplyTheUpdate)
+	sc.Step(`^the clone "([^"]*)" HEAD is at its "([^"]*)" commit$`, w.theCloneHeadIsAt)
+	sc.Step(`^the lock file pins "([^"]*)" to its "([^"]*)" commit$`, w.theLockFilePins)
 	sc.Step(`^a locked plugin "([^"]*)" on branch "([^"]*)" at commit "([^"]*)"$`, w.aLockedPlugin)
 	sc.Step(`^the source reports current version "([^"]*)" for "([^"]*)"$`, w.currentVersionFor)
 	sc.Step(`^the source offers candidates "([^"]*)" for "([^"]*)"$`, w.offersCandidates)

@@ -44,7 +44,7 @@ func run(minAgeDays int, lockPath, installDir string) error {
 	}
 
 	minAge := time.Duration(minAgeDays) * 24 * time.Hour
-	model := tui.New(plugins, time.Now(), minAge)
+	model := tui.New(plugins, time.Now(), minAge).WithApplier(dock.Updater{Config: cfg})
 
 	_, err = tea.NewProgram(model, tea.WithAltScreen()).Run()
 	return err

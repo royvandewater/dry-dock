@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 )
@@ -69,6 +70,21 @@ func SetCommit(doc, name, commit string) (string, error) {
 	}
 	b.WriteString("}")
 	return b.String(), nil
+}
+
+// UpdateFile rewrites the lock file at path so name's commit becomes commit,
+// leaving every other entry untouched, and writes it back with a trailing
+// newline the way lazy.vim does.
+func UpdateFile(path, name, commit string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	updated, err := SetCommit(string(data), name, commit)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(updated+"\n"), 0o644)
 }
 
 // encodeEntry renders a single lock entry on one line: { "k": "v", ... } with
