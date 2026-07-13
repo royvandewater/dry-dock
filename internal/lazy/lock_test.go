@@ -1,38 +1,95 @@
 package lazy
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/cucumber/godog"
 )
 
-func TestParseLockReadsNameBranchAndCommit(t *testing.T) {
-	raw := `{
-	  "telescope.nvim": { "branch": "master", "commit": "3333a52ff548ba0a68af6d8da1e54f9cd96e9179" },
-	  "blink.cmp": { "branch": "main", "commit": "78336bc89ee5365633bcf754d93df01678b5c08f" }
-	}`
+func TestFeatures(t *testing.T) {
+	suite := godog.TestSuite{
+		ScenarioInitializer: InitializeScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"features"},
+			TestingT: t,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("non-zero status returned, failed to run feature tests")
+	}
+}
 
-	locked, err := ParseLock(strings.NewReader(raw))
+type lockWorld struct {
+	doc    string
+	locked []Locked
+}
+
+func (w *lockWorld) find(name string) (Locked, error) {
+	for _, l := range w.locked {
+		if l.Name == name {
+			return l, nil
+		}
+	}
+	return Locked{}, fmt.Errorf("locked plugin %q not found", name)
+}
+
+func (w *lockWorld) aLazyLockDocument(doc *godog.DocString) error {
+	w.doc = doc.Content
+	return nil
+}
+
+func (w *lockWorld) iParseTheLockDocument() error {
+	locked, err := ParseLock(strings.NewReader(w.doc))
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		return err
 	}
+	w.locked = locked
+	return nil
+}
 
-	if len(locked) != 2 {
-		t.Fatalf("expected 2 locked plugins, got %d", len(locked))
+func (w *lockWorld) thereAreLockedPlugins(n int) error {
+	if len(w.locked) != n {
+		return fmt.Errorf("expected %d locked plugins, got %d", n, len(w.locked))
 	}
+	return nil
+}
 
-	byName := map[string]Locked{}
-	for _, l := range locked {
-		byName[l.Name] = l
+func (w *lockWorld) theLockedPluginHasBranch(name, branch string) error {
+	l, err := w.find(name)
+	if err != nil {
+		return err
 	}
+	if l.Branch != branch {
+		return fmt.Errorf("expected branch %q, got %q", branch, l.Branch)
+	}
+	return nil
+}
 
-	tel, ok := byName["telescope.nvim"]
-	if !ok {
-		t.Fatal("telescope.nvim missing")
+func (w *lockWorld) theLockedPluginHasCommit(name, commit string) error {
+	l, err := w.find(name)
+	if err != nil {
+		return err
 	}
-	if tel.Branch != "master" {
-		t.Fatalf("expected branch master, got %q", tel.Branch)
+	if l.Commit != commit {
+		return fmt.Errorf("expected commit %q, got %q", commit, l.Commit)
 	}
-	if tel.Commit != "3333a52ff548ba0a68af6d8da1e54f9cd96e9179" {
-		t.Fatalf("unexpected commit %q", tel.Commit)
-	}
+	return nil
+}
+
+func InitializeScenario(sc *godog.ScenarioContext) {
+	w := &lockWorld{}
+	sc.Before(func(ctx context.Context, s *godog.Scenario) (context.Context, error) {
+		*w = lockWorld{}
+		return ctx, nil
+	})
+
+	sc.Step(`^a lazy-lock\.json document:$`, w.aLazyLockDocument)
+	sc.Step(`^I parse the lock document$`, w.iParseTheLockDocument)
+	sc.Step(`^there are (\d+) locked plugins$`, w.thereAreLockedPlugins)
+	sc.Step(`^the locked plugin "([^"]*)" has branch "([^"]*)"$`, w.theLockedPluginHasBranch)
+	sc.Step(`^the locked plugin "([^"]*)" has commit "([^"]*)"$`, w.theLockedPluginHasCommit)
 }
