@@ -47,6 +47,21 @@ func Fetch(dir string) error {
 	return err
 }
 
+// CommitFile stages file and records it as a commit in dir's repository.
+func CommitFile(dir, file, message string) error {
+	if _, err := gitOutput(dir, "add", file); err != nil {
+		return err
+	}
+	_, err := gitOutput(dir, "commit", "-m", message)
+	return err
+}
+
+// Push publishes the current branch to its upstream.
+func Push(dir string) error {
+	_, err := gitOutput(dir, "push")
+	return err
+}
+
 // tagFields is the null-separated for-each-ref format: tag name, tag/commit
 // object, dereferenced commit (annotated tags only), creator unix time, subject.
 const tagFields = "%(refname:short)%00%(objectname)%00%(*objectname)%00%(creatordate:unix)%00%(contents:subject)"

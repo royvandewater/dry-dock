@@ -62,6 +62,7 @@ type buildWorld struct {
 	restored       []string
 	breakingCommit string
 	applyErr       error
+	commitMessages []string
 }
 
 func (w *buildWorld) dir(name string) string {
@@ -212,6 +213,10 @@ func (w *buildWorld) iApplyTheUpdateToCommit(name, commit string) error {
 			}
 			return nil
 		},
+		Commit: func(message string) error {
+			w.commitMessages = append(w.commitMessages, message)
+			return nil
+		},
 	}
 	w.applyErr = u.Apply(name, commit)
 	return nil
@@ -254,6 +259,22 @@ func (w *buildWorld) lazyWasNotAskedToRestore() error {
 	return nil
 }
 
+func (w *buildWorld) theConfigRepoIsCommittedWithMessage(message string) error {
+	for _, m := range w.commitMessages {
+		if m == message {
+			return nil
+		}
+	}
+	return fmt.Errorf("expected a commit with message %q, got %v", message, w.commitMessages)
+}
+
+func (w *buildWorld) theConfigRepoIsNotCommitted() error {
+	if len(w.commitMessages) != 0 {
+		return fmt.Errorf("expected no commit, got %v", w.commitMessages)
+	}
+	return nil
+}
+
 func (w *buildWorld) theUpdateFails() error {
 	if w.applyErr == nil {
 		return fmt.Errorf("expected the update to fail, got nil error")
@@ -290,6 +311,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^lazy\.vim was asked to restore "([^"]*)"$`, w.lazyWasAskedToRestore)
 	sc.Step(`^lazy\.vim was not asked to restore$`, w.lazyWasNotAskedToRestore)
 	sc.Step(`^the update fails$`, w.theUpdateFails)
+	sc.Step(`^the config repo is committed with message "([^"]*)"$`, w.theConfigRepoIsCommittedWithMessage)
+	sc.Step(`^the config repo is not committed$`, w.theConfigRepoIsNotCommitted)
 	sc.Step(`^a locked plugin "([^"]*)" on branch "([^"]*)" at commit "([^"]*)"$`, w.aLockedPlugin)
 	sc.Step(`^the source reports current version "([^"]*)" for "([^"]*)"$`, w.currentVersionFor)
 	sc.Step(`^the source offers candidates "([^"]*)" for "([^"]*)"$`, w.offersCandidates)

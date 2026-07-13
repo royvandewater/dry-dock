@@ -96,6 +96,42 @@ func (w *gitWorld) aTagOnCommit(tag, subject string) error {
 	return err
 }
 
+func (w *gitWorld) aFileHolding(name, content string) error {
+	if _, err := w.run("config", "user.name", "t"); err != nil {
+		return err
+	}
+	if _, err := w.run("config", "user.email", "t@t"); err != nil {
+		return err
+	}
+	return os.WriteFile(w.dir+"/"+name, []byte(content), 0o644)
+}
+
+func (w *gitWorld) iCommitWithMessage(file, message string) error {
+	return CommitFile(w.dir, file, message)
+}
+
+func (w *gitWorld) theLatestCommitSubjectIs(subject string) error {
+	out, err := w.run("log", "-1", "--format=%s")
+	if err != nil {
+		return err
+	}
+	if got := strings.TrimSpace(out); got != subject {
+		return fmt.Errorf("expected latest commit subject %q, got %q", subject, got)
+	}
+	return nil
+}
+
+func (w *gitWorld) thereAreNoUncommittedChanges() error {
+	out, err := w.run("status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) != "" {
+		return fmt.Errorf("expected a clean working tree, got:\n%s", out)
+	}
+	return nil
+}
+
 func (w *gitWorld) iListTheTags() error {
 	tags, err := Tags(w.dir)
 	if err != nil {
@@ -190,6 +226,10 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a repo with commits on "([^"]*)": "([^"]*)"$`, w.aRepoWithCommits)
 	sc.Step(`^I log between commit "([^"]*)" and "([^"]*)"$`, w.iLogBetween)
 	sc.Step(`^I read the commit for "([^"]*)"$`, w.iReadTheCommitFor)
+	sc.Step(`^a file "([^"]*)" holding "([^"]*)"$`, w.aFileHolding)
+	sc.Step(`^I commit "([^"]*)" with message "([^"]*)"$`, w.iCommitWithMessage)
+	sc.Step(`^the latest commit subject is "([^"]*)"$`, w.theLatestCommitSubjectIs)
+	sc.Step(`^there are no uncommitted changes$`, w.thereAreNoUncommittedChanges)
 	sc.Step(`^a tag "([^"]*)" on commit "([^"]*)"$`, w.aTagOnCommit)
 	sc.Step(`^I list the tags$`, w.iListTheTags)
 	sc.Step(`^there are (\d+) tags$`, w.thereAreTags)

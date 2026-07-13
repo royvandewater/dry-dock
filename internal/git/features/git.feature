@@ -23,3 +23,9 @@ Feature: Reading git history as plugin versions
     Then there are 2 tags
     And tag "v1.0.0" points at commit "first"
     And tag "v1.1.0" points at commit "third"
+
+  Scenario: CommitFile stages a file and records it as a commit
+    Given a file "lazy-lock.json" holding "pinned"
+    When I commit "lazy-lock.json" with message "Update telescope.nvim to newsha"
+    Then the latest commit subject is "Update telescope.nvim to newsha"
+    And there are no uncommitted changes
