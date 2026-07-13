@@ -30,6 +30,7 @@ func TestFeatures(t *testing.T) {
 type fakeSource struct {
 	current    map[string]plugin.Version
 	candidates map[string][]plugin.Version
+	tags       map[string][]plugin.Version
 }
 
 func (f fakeSource) Current(dir, sha string) (plugin.Version, error) {
@@ -40,10 +41,19 @@ func (f fakeSource) Candidates(dir, from, ref string) ([]plugin.Version, error) 
 	return f.candidates[dir], nil
 }
 
+func (f fakeSource) Tags(dir string) ([]plugin.Version, error) {
+	return f.tags[dir], nil
+}
+
+func (f fakeSource) Describe(dir, sha string) (string, error) {
+	return "", nil
+}
+
 type buildWorld struct {
 	installDir string
 	locked     []lazy.Locked
 	src        fakeSource
+	matchers   map[string]string
 	plugins    []plugin.Plugin
 
 	tmp      string
@@ -87,8 +97,29 @@ func (w *buildWorld) offersNoCandidates(name string) error {
 	return nil
 }
 
+func (w *buildWorld) offersTagsFor(name string, table *godog.Table) error {
+	var tags []plugin.Version
+	for _, row := range table.Rows[1:] {
+		tags = append(tags, plugin.Version{SHA: row.Cells[1].Value, Tag: row.Cells[0].Value})
+	}
+	w.src.tags[w.dir(name)] = tags
+	return nil
+}
+
+func (w *buildWorld) hasVersionConstraint(name, constraint string) error {
+	w.matchers[name] = constraint
+	return nil
+}
+
+func (w *buildWorld) pluginHasReleasesOutsideItsConstraint(n, count int) error {
+	if got := w.plugins[n-1].OutOfScope; got != count {
+		return fmt.Errorf("expected plugin %d to have %d releases outside its constraint, got %d", n, count, got)
+	}
+	return nil
+}
+
 func (w *buildWorld) iBuildThePluginList() error {
-	plugins, err := Build(w.installDir, w.locked, w.src)
+	plugins, err := Build(w.installDir, w.locked, w.matchers, w.src)
 	if err != nil {
 		return err
 	}
@@ -237,7 +268,9 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 			src: fakeSource{
 				current:    map[string]plugin.Version{},
 				candidates: map[string][]plugin.Version{},
+				tags:       map[string][]plugin.Version{},
 			},
+			matchers: map[string]string{},
 		}
 		return ctx, nil
 	})
@@ -267,4 +300,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^plugin (\d+) is named "([^"]*)"$`, w.pluginIsNamed)
 	sc.Step(`^plugin (\d+) has current sha "([^"]*)"$`, w.pluginHasCurrentSha)
 	sc.Step(`^plugin (\d+) has candidate shas "([^"]*)"$`, w.pluginHasCandidateShas)
+	sc.Step(`^the source offers tags for "([^"]*)":$`, w.offersTagsFor)
+	sc.Step(`^"([^"]*)" has version constraint "([^"]*)"$`, w.hasVersionConstraint)
+	sc.Step(`^plugin (\d+) has (\d+) release outside its constraint$`, w.pluginHasReleasesOutsideItsConstraint)
+	sc.Step(`^plugin (\d+) has (\d+) releases outside its constraint$`, w.pluginHasReleasesOutsideItsConstraint)
 }

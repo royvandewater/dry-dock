@@ -49,6 +49,17 @@ it — the cumulative changelog from the current version through the selected on
 Commits that announce a breaking change (a Conventional Commits `!` marker or
 `BREAKING CHANGE`) are tagged **⚠ BREAKING** in the changelog.
 
+### Version constraints
+
+If a plugin's lazy.vim spec pins a version range (e.g. `version = '1.*'`),
+dry-dock respects it: the version list shows only the release **tags** that
+satisfy the constraint, so a `1.*` plugin never offers `2.x`. dry-dock reads the
+constraints straight from lazy.vim (via a headless `nvim`), so they match
+exactly what lazy resolves. When newer releases exist outside the range, the
+Versions pane notes how many (**⚠ N newer releases outside 1.\***) so you know an
+upgrade is available but gated by your own pin. Plugins without a `version`
+matcher are tracked commit-by-commit as before.
+
 Pressing **enter** on a version performs the update: dry-dock rewrites
 `lazy-lock.json` to pin the chosen commit (matching lazy.vim's own lock format),
 then runs `nvim --headless "+Lazy! restore <plugin>" +qa` so lazy.vim performs

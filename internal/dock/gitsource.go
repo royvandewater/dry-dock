@@ -15,3 +15,11 @@ func (GitSource) Current(dir, sha string) (plugin.Version, error) {
 func (GitSource) Candidates(dir, from, ref string) ([]plugin.Version, error) {
 	return git.LogBetween(dir, from, ref)
 }
+
+func (GitSource) Tags(dir string) ([]plugin.Version, error) {
+	return git.Tags(dir)
+}
+
+func (GitSource) Describe(dir, sha string) (string, error) {
+	return git.DescribeTag(dir, sha)
+}

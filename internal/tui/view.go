@@ -99,15 +99,44 @@ func (m Model) pluginContent(l layout) string {
 }
 
 func (m Model) versionContent(l layout) string {
+	p := m.SelectedPlugin()
 	lines := m.versionBodyLines()
-	if len(lines) == 0 {
-		return titleStyle.Render("Versions") + "\n" + dimStyle.Render("(none old enough)")
+
+	// When the plugin pins a version range, note the newer releases hidden
+	// because they fall outside it. The note costs one row of the list window.
+	note := ""
+	if p.Constraint != "" && p.OutOfScope > 0 {
+		unit := "release"
+		if p.OutOfScope > 1 {
+			unit = "releases"
+		}
+		note = warningStyle.Render(fmt.Sprintf("⚠ %d newer %s outside %s", p.OutOfScope, unit, p.Constraint))
 	}
+	rows := l.listRows
+	if note != "" {
+		rows = max(1, rows-1)
+	}
+
+	if len(lines) == 0 {
+		empty := "(none old enough)"
+		if p.Constraint != "" {
+			empty = "(no newer release within " + p.Constraint + ")"
+		}
+		body := dimStyle.Render(empty)
+		if note != "" {
+			body = note + "\n" + body
+		}
+		return titleStyle.Render("Versions") + "\n" + body
+	}
+
 	// Each version occupies two lines; keep the selected pair in view.
-	offset := follow(m.versionIdx*2, len(lines), l.listRows)
-	body := window(lines, offset, l.listRows)
-	return titleStyle.Render(scrollTitle("Versions", offset, len(lines), l.listRows)) + "\n" +
-		strings.Join(body, "\n")
+	offset := follow(m.versionIdx*2, len(lines), rows)
+	body := window(lines, offset, rows)
+	out := titleStyle.Render(scrollTitle("Versions", offset, len(lines), rows)) + "\n"
+	if note != "" {
+		out += note + "\n"
+	}
+	return out + strings.Join(body, "\n")
 }
 
 func (m Model) changesContent(l layout) string {
@@ -146,7 +175,11 @@ func (m Model) versionBodyLines() []string {
 	visible := m.VisibleVersions()
 	lines := make([]string, 0, len(visible)*2)
 	for i, v := range visible {
-		text := fmt.Sprintf("%s  %s", shortSHA(v.SHA), relativeDate(v.Date, m.now))
+		id := shortSHA(v.SHA)
+		if v.Tag != "" {
+			id = v.Tag
+		}
+		text := fmt.Sprintf("%s  %s", id, relativeDate(v.Date, m.now))
 		breaking := p.IncludesBreaking(v.SHA)
 		subject := truncate(v.Subject, versionPaneWidth-2)
 		var label string

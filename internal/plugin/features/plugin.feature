@@ -31,6 +31,36 @@ Feature: Plugin changes and installability
     And updating to "c" includes a breaking change
     And updating to "b" does not include a breaking change
 
+  Scenario: A version matcher keeps in-range tags and counts newer ones outside it
+    Given tags "v2.0.0, v1.11.0, v1.10.2, v1.9.0"
+    And the current tag is "v1.10.2"
+    And the version constraint is "1.*"
+    When I select the in-range versions
+    Then the resulting shas are "v1.11.0"
+    And there is 1 newer release outside the range
+
+  Scenario: Duplicate tags on one commit collapse to a single version
+    Given tag releases:
+      | tag     | sha  |
+      | v2.0.0  | c200 |
+      | v2.0    | c200 |
+      | v1.11.0 | c110 |
+      | v1.11   | c110 |
+      | v1.10.2 | c102 |
+    And the current commit is "c102"
+    And the version constraint is "1.*"
+    When I select the in-range versions
+    Then the resulting shas are "c110"
+    And there is 1 newer release outside the range
+
+  Scenario: A star matcher offers every newer tag and flags nothing as outside
+    Given tags "v2.0.0, v1.11.0, v1.10.2"
+    And the current tag is "v1.10.2"
+    And the version constraint is "*"
+    When I select the in-range versions
+    Then the resulting shas are "v2.0.0, v1.11.0"
+    And there are 0 newer releases outside the range
+
   Scenario: Installable versions exclude those younger than the minimum age
     Given the current time is "2026-07-13"
     And a minimum release age of 14 days

@@ -47,6 +47,61 @@ func Fetch(dir string) error {
 	return err
 }
 
+// tagFields is the null-separated for-each-ref format: tag name, tag/commit
+// object, dereferenced commit (annotated tags only), creator unix time, subject.
+const tagFields = "%(refname:short)%00%(objectname)%00%(*objectname)%00%(creatordate:unix)%00%(contents:subject)"
+
+// Tags lists the plugin's release tags as versions, each carrying the commit it
+// points at (dereferencing annotated tags), the tag date, and its subject.
+func Tags(dir string) ([]plugin.Version, error) {
+	out, err := gitOutput(dir, "for-each-ref", "refs/tags", "--format="+tagFields)
+	if err != nil {
+		return nil, err
+	}
+	return parseTags(out)
+}
+
+// DescribeTag returns the nearest ancestor tag reachable from sha (the tag the
+// commit sits on or after), or "" when the commit has no such tag.
+func DescribeTag(dir, sha string) (string, error) {
+	out, err := gitOutput(dir, "describe", "--tags", "--abbrev=0", sha)
+	if err != nil {
+		// No reachable tag is an expected outcome, not a failure.
+		return "", nil
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func parseTags(out string) ([]plugin.Version, error) {
+	var tags []plugin.Version
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x00", 5)
+		if len(parts) != 5 {
+			return nil, fmt.Errorf("malformed tag line: %q", line)
+		}
+		// An annotated tag's own object is in objectname; its target commit is
+		// in the dereferenced field. Lightweight tags point straight at a commit.
+		sha := parts[2]
+		if sha == "" {
+			sha = parts[1]
+		}
+		unix, err := strconv.ParseInt(parts[3], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parsing tag time %q: %w", parts[3], err)
+		}
+		tags = append(tags, plugin.Version{
+			SHA:     sha,
+			Subject: parts[4],
+			Date:    time.Unix(unix, 0),
+			Tag:     parts[0],
+		})
+	}
+	return tags, nil
+}
+
 func gitOutput(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

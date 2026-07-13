@@ -56,7 +56,15 @@ func Load(cfg Config) ([]plugin.Plugin, error) {
 
 	fetchAll(cfg.InstallDir, locked)
 
-	return Build(cfg.InstallDir, locked, GitSource{})
+	// Version matchers are best-effort: if nvim/lazy can't be queried, every
+	// plugin is treated as unconstrained and tracked by commit.
+	matchers, err := lazyMatchers()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "dry-dock: reading version matchers:", err)
+		matchers = map[string]string{}
+	}
+
+	return Build(cfg.InstallDir, locked, matchers, GitSource{})
 }
 
 // fetchAll refreshes remote-tracking refs concurrently. Fetch failures (e.g. a

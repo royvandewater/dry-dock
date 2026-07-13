@@ -31,6 +31,7 @@ type gitWorld struct {
 	shaBySubj map[string]string
 	versions  []plugin.Version
 	commit    plugin.Version
+	tags      []plugin.Version
 }
 
 func (w *gitWorld) run(args ...string) (string, error) {
@@ -88,6 +89,39 @@ func (w *gitWorld) iReadTheCommitFor(subject string) error {
 	}
 	w.commit = commit
 	return nil
+}
+
+func (w *gitWorld) aTagOnCommit(tag, subject string) error {
+	_, err := w.run("tag", tag, w.shaBySubj[subject])
+	return err
+}
+
+func (w *gitWorld) iListTheTags() error {
+	tags, err := Tags(w.dir)
+	if err != nil {
+		return err
+	}
+	w.tags = tags
+	return nil
+}
+
+func (w *gitWorld) thereAreTags(n int) error {
+	if len(w.tags) != n {
+		return fmt.Errorf("expected %d tags, got %d", n, len(w.tags))
+	}
+	return nil
+}
+
+func (w *gitWorld) tagPointsAtCommit(tag, subject string) error {
+	for _, t := range w.tags {
+		if t.Tag == tag {
+			if t.SHA != w.shaBySubj[subject] {
+				return fmt.Errorf("expected tag %q at %q, got %q", tag, w.shaBySubj[subject], t.SHA)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("tag %q not found in %v", tag, w.tags)
 }
 
 func (w *gitWorld) thereAreVersions(n int) error {
@@ -156,6 +190,10 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a repo with commits on "([^"]*)": "([^"]*)"$`, w.aRepoWithCommits)
 	sc.Step(`^I log between commit "([^"]*)" and "([^"]*)"$`, w.iLogBetween)
 	sc.Step(`^I read the commit for "([^"]*)"$`, w.iReadTheCommitFor)
+	sc.Step(`^a tag "([^"]*)" on commit "([^"]*)"$`, w.aTagOnCommit)
+	sc.Step(`^I list the tags$`, w.iListTheTags)
+	sc.Step(`^there are (\d+) tags$`, w.thereAreTags)
+	sc.Step(`^tag "([^"]*)" points at commit "([^"]*)"$`, w.tagPointsAtCommit)
 	sc.Step(`^there are (\d+) versions$`, w.thereAreVersions)
 	sc.Step(`^the version subjects are "([^"]*)"$`, w.theVersionSubjectsAre)
 	sc.Step(`^version (\d+) has the sha of commit "([^"]*)"$`, w.versionHasTheShaOfCommit)
