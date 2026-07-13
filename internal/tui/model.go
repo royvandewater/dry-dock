@@ -120,18 +120,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case applyResultMsg:
 		if msg.err != nil {
 			m.status = fmt.Sprintf("update failed: %s → %s: %v", msg.pluginName, shortSHA(msg.sha), msg.err)
-		} else {
-			m.status = fmt.Sprintf("updated %s → %s", msg.pluginName, shortSHA(msg.sha))
+			return m, nil
 		}
+		m.status = fmt.Sprintf("updated %s → %s", msg.pluginName, shortSHA(msg.sha))
+		m.integrateUpdate(msg.sha)
 		return m, nil
 	}
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyCtrlC, tea.KeyEsc:
+	if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc || msg.String() == "q" {
 		return m, tea.Quit
+	}
+	if len(m.plugins) == 0 {
+		return m, nil
+	}
+
+	switch msg.Type {
 	case tea.KeyRight:
 		m.focusNext()
 	case tea.KeyLeft:
@@ -142,12 +148,55 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(1)
 	case tea.KeyEnter:
 		return m, m.applySelected()
-	default:
-		if msg.String() == "q" {
-			return m, tea.Quit
-		}
 	}
 	return m, nil
+}
+
+// integrateUpdate refreshes the plugin list after a successful update to sha.
+// Because updating pulls the plugin's ref forward, the versions newer than sha
+// remain installable while sha and everything older become history. When no
+// newer versions remain, the plugin has nothing left to offer and drops off the
+// list, mirroring how it was assembled in the first place.
+func (m *Model) integrateUpdate(sha string) {
+	idx := m.pluginIdx
+	p := m.plugins[idx]
+
+	ci := -1
+	for i, c := range p.Candidates {
+		if c.SHA == sha {
+			ci = i
+			break
+		}
+	}
+	if ci < 0 {
+		return
+	}
+
+	remaining := p.Candidates[:ci]
+	if len(remaining) == 0 {
+		m.plugins = append(m.plugins[:idx], m.plugins[idx+1:]...)
+		if len(m.plugins) == 0 {
+			m.pluginIdx = 0
+		} else {
+			m.pluginIdx = clamp(idx, 0, len(m.plugins)-1)
+		}
+		m.focus = focusPlugins
+	} else {
+		p.Current = p.Candidates[ci]
+		p.Candidates = remaining
+		m.plugins[idx] = p
+	}
+
+	m.versionIdx = 0
+	m.versionScroll = 0
+	m.pluginScroll = 0
+	m.changesScroll = 0
+
+	// A refreshed plugin may have no versions old enough to install; fall back
+	// to the plugin list so focus never lands on an empty pane.
+	if len(m.plugins) == 0 || len(m.VisibleVersions()) == 0 {
+		m.focus = focusPlugins
+	}
 }
 
 // applySelected returns a command that applies the highlighted version to the

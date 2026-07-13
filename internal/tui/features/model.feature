@@ -55,6 +55,24 @@ Feature: Navigating plugins, versions, and changes
     Then the updater applied "telescope.nvim" at "telA"
     And the status contains "telescope.nvim"
 
+  Scenario: A successful update refreshes the plugin's versions in place
+    Given the sample model with a recording updater
+    When I press "right"
+    And I press "down"
+    And I press "enter"
+    And I process pending commands
+    Then the selected plugin is "telescope.nvim"
+    And the visible version shas are "telB"
+
+  Scenario: A plugin with no more versions drops off the list after updating
+    Given the sample model with a recording updater
+    When I press "down"
+    And I press "right"
+    And I press "enter"
+    And I process pending commands
+    Then the selected plugin is "telescope.nvim"
+    And there is 1 plugin
+
   Scenario: A failed update surfaces its error in the status
     Given the sample model with a failing updater
     When I press "right"
