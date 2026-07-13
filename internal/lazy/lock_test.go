@@ -30,6 +30,7 @@ type lockWorld struct {
 	locked []Locked
 	result string
 	path   string
+	commit string
 }
 
 func (w *lockWorld) find(name string) (Locked, error) {
@@ -78,6 +79,22 @@ func (w *lockWorld) aLockFileContaining(doc *godog.DocString) error {
 	}
 	w.path = filepath.Join(dir, "lazy-lock.json")
 	return os.WriteFile(w.path, []byte(doc.Content), 0o644)
+}
+
+func (w *lockWorld) iReadTheCommitForFromTheFile(name string) error {
+	commit, err := CommitFor(w.path, name)
+	if err != nil {
+		return err
+	}
+	w.commit = commit
+	return nil
+}
+
+func (w *lockWorld) theCommitReadIs(commit string) error {
+	if w.commit != commit {
+		return fmt.Errorf("expected commit %q, got %q", commit, w.commit)
+	}
+	return nil
 }
 
 func (w *lockWorld) iUpdateCommitInTheFile(name, commit string) error {
@@ -145,6 +162,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I set "([^"]*)" commit to "([^"]*)"$`, w.iSetCommitTo)
 	sc.Step(`^the resulting document is:$`, w.theResultingDocumentIs)
 	sc.Step(`^a lock file containing:$`, w.aLockFileContaining)
+	sc.Step(`^I read the commit for "([^"]*)" from the file$`, w.iReadTheCommitForFromTheFile)
+	sc.Step(`^the commit read is "([^"]*)"$`, w.theCommitReadIs)
 	sc.Step(`^I update "([^"]*)" commit to "([^"]*)" in the file$`, w.iUpdateCommitInTheFile)
 	sc.Step(`^I parse the lock file$`, w.iParseTheLockFile)
 	sc.Step(`^there are (\d+) locked plugins$`, w.thereAreLockedPlugins)

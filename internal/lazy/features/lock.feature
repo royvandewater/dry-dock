@@ -32,6 +32,16 @@ Feature: Parsing lazy-lock.json
       }
       """
 
+  Scenario: Reading a single plugin's pinned commit from a file
+    Given a lock file containing:
+      """
+      {
+        "blink.cmp": { "branch": "main", "commit": "abc123" }
+      }
+      """
+    When I read the commit for "blink.cmp" from the file
+    Then the commit read is "abc123"
+
   Scenario: Updating a plugin's commit on disk
     Given a lock file containing:
       """

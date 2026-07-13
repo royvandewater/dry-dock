@@ -26,6 +26,7 @@ var (
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	shaStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	warningStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("203"))
 )
 
 // layout holds the derived pane geometry for the current window size.
@@ -161,7 +162,11 @@ func (m Model) versionBodyLines() []string {
 func (m Model) changesBodyLines(width int) []string {
 	var lines []string
 	for _, c := range m.SelectedChanges() {
-		lines = append(lines, shaStyle.Render(fmt.Sprintf("%s  %s", shortSHA(c.SHA), c.Date.Format("2006-01-02"))))
+		head := shaStyle.Render(fmt.Sprintf("%s  %s", shortSHA(c.SHA), c.Date.Format("2006-01-02")))
+		if c.Breaking() {
+			head += "  " + warningStyle.Render("⚠ BREAKING")
+		}
+		lines = append(lines, head)
 		for _, line := range wrap(c.Subject, width-2) {
 			lines = append(lines, "  "+line)
 		}

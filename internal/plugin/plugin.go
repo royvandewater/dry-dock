@@ -2,7 +2,15 @@
 // to, independent of where that data comes from (git, fixtures, etc).
 package plugin
 
-import "time"
+import (
+	"regexp"
+	"strings"
+	"time"
+)
+
+// breakingType matches a Conventional Commits type/scope that carries a "!"
+// breaking-change marker, e.g. "feat!:" or "feat(keymap)!:".
+var breakingType = regexp.MustCompile(`^[a-zA-Z]+(\([^)]*\))?!:`)
 
 // Version is a single point a plugin can move to. For lazy.vim plugins this
 // maps to a git commit: SHA identifies it, Subject describes the change, and
@@ -11,6 +19,15 @@ type Version struct {
 	SHA     string
 	Subject string
 	Date    time.Time
+}
+
+// Breaking reports whether the commit announces a breaking change, per the
+// Conventional Commits convention: a "!" after the type/scope or a
+// "BREAKING CHANGE" marker in the subject.
+func (v Version) Breaking() bool {
+	return breakingType.MatchString(v.Subject) ||
+		strings.Contains(v.Subject, "BREAKING CHANGE") ||
+		strings.Contains(v.Subject, "BREAKING-CHANGE")
 }
 
 // Plugin is an installed lazy.vim plugin together with the newer versions it

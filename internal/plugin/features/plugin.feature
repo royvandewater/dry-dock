@@ -7,6 +7,18 @@ Feature: Plugin changes and installability
     When I request the changes up to index 1
     Then the resulting shas are "v2, v1"
 
+  Scenario: A Conventional Commits bang marks a breaking change
+    Given a commit with subject "feat(keymap)!: replace expr keymaps"
+    Then the commit is breaking
+
+  Scenario: A bang on a scopeless type still marks a breaking change
+    Given a commit with subject "refactor!: drop legacy config"
+    Then the commit is breaking
+
+  Scenario: An ordinary commit is not breaking
+    Given a commit with subject "fix: os should be system_info"
+    Then the commit is not breaking
+
   Scenario: Installable versions exclude those younger than the minimum age
     Given the current time is "2026-07-13"
     And a minimum release age of 14 days

@@ -26,10 +26,11 @@ func TestFeatures(t *testing.T) {
 }
 
 type pluginWorld struct {
-	now    time.Time
-	minAge time.Duration
-	plugin Plugin
-	result []Version
+	now     time.Time
+	minAge  time.Duration
+	plugin  Plugin
+	result  []Version
+	version Version
 }
 
 func splitList(s string) []string {
@@ -88,6 +89,25 @@ func (w *pluginWorld) aPluginWithCandidates(table *godog.Table) error {
 	return nil
 }
 
+func (w *pluginWorld) aCommitWithSubject(subject string) error {
+	w.version = Version{Subject: subject}
+	return nil
+}
+
+func (w *pluginWorld) theCommitIsBreaking() error {
+	if !w.version.Breaking() {
+		return fmt.Errorf("expected %q to be breaking", w.version.Subject)
+	}
+	return nil
+}
+
+func (w *pluginWorld) theCommitIsNotBreaking() error {
+	if w.version.Breaking() {
+		return fmt.Errorf("expected %q not to be breaking", w.version.Subject)
+	}
+	return nil
+}
+
 func (w *pluginWorld) iRequestTheChangesUpToIndex(i int) error {
 	w.result = w.plugin.ChangesUpTo(i)
 	return nil
@@ -118,6 +138,9 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a minimum release age of (\d+) days$`, w.aMinimumReleaseAgeOfDays)
 	sc.Step(`^a plugin whose candidates newest-first are "([^"]*)"$`, w.aPluginWhoseCandidatesNewestFirstAre)
 	sc.Step(`^a plugin with candidates:$`, w.aPluginWithCandidates)
+	sc.Step(`^a commit with subject "([^"]*)"$`, w.aCommitWithSubject)
+	sc.Step(`^the commit is breaking$`, w.theCommitIsBreaking)
+	sc.Step(`^the commit is not breaking$`, w.theCommitIsNotBreaking)
 	sc.Step(`^I request the changes up to index (\d+)$`, w.iRequestTheChangesUpToIndex)
 	sc.Step(`^I compute the installable versions$`, w.iComputeTheInstallableVersions)
 	sc.Step(`^the resulting shas are "([^"]*)"$`, w.theResultingShasAre)

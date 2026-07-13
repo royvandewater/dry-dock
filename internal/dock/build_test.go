@@ -49,8 +49,9 @@ type buildWorld struct {
 	tmp      string
 	lockPath string
 
-	restored []string
-	applyErr error
+	restored       []string
+	breakingCommit string
+	applyErr       error
 }
 
 func (w *buildWorld) dir(name string) string {
@@ -156,6 +157,11 @@ func (w *buildWorld) noLockFileExists() error {
 	return err
 }
 
+func (w *buildWorld) commitBreaksNvim(commit string) error {
+	w.breakingCommit = commit
+	return nil
+}
+
 func (w *buildWorld) iApplyTheUpdateToCommit(name, commit string) error {
 	if _, err := w.tmpDir(); err != nil {
 		return err
@@ -163,6 +169,18 @@ func (w *buildWorld) iApplyTheUpdateToCommit(name, commit string) error {
 	u := Updater{
 		Config:  Config{LockPath: w.lockPath},
 		Restore: func(pluginName string) error { w.restored = append(w.restored, pluginName); return nil },
+		// HealthCheck reads whatever the lock file currently pins and treats the
+		// designated commit as broken, mirroring "the new version breaks nvim".
+		HealthCheck: func(pluginName string) error {
+			c, err := lazy.CommitFor(w.lockPath, pluginName)
+			if err != nil {
+				return err
+			}
+			if w.breakingCommit != "" && c == w.breakingCommit {
+				return fmt.Errorf("nvim broke on %s", c)
+			}
+			return nil
+		},
 	}
 	w.applyErr = u.Apply(name, commit)
 	return nil
@@ -232,6 +250,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^the install dir "([^"]*)"$`, w.theInstallDir)
 	sc.Step(`^a lock file pinning "([^"]*)" to commit "([^"]*)"$`, w.aLockFilePinningToCommit)
+	sc.Step(`^commit "([^"]*)" breaks nvim$`, w.commitBreaksNvim)
 	sc.Step(`^no lock file exists$`, w.noLockFileExists)
 	sc.Step(`^I apply the update for "([^"]*)" to commit "([^"]*)"$`, w.iApplyTheUpdateToCommit)
 	sc.Step(`^the lock file pins "([^"]*)" to commit "([^"]*)"$`, w.theLockFilePinsCommit)

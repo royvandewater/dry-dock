@@ -72,6 +72,26 @@ func SetCommit(doc, name, commit string) (string, error) {
 	return b.String(), nil
 }
 
+// CommitFor reads the commit that name is pinned to in the lock file at path.
+func CommitFor(path, name string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	locked, err := ParseLock(f)
+	if err != nil {
+		return "", err
+	}
+	for _, l := range locked {
+		if l.Name == name {
+			return l.Commit, nil
+		}
+	}
+	return "", fmt.Errorf("plugin %q not found in lock file", name)
+}
+
 // UpdateFile rewrites the lock file at path so name's commit becomes commit,
 // leaving every other entry untouched, and writes it back with a trailing
 // newline the way lazy.vim does.
