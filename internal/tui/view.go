@@ -28,6 +28,36 @@ var (
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
+// layout holds the derived pane geometry for the current window size.
+type layout struct {
+	bodyHeight      int // height of the pane row, including borders
+	innerH          int // content height inside a pane's border
+	listRows        int // scrollable rows in the plugin/version panes (below the title)
+	changesViewport int // scrollable rows in the changes pane (below its header)
+	changesWidth    int
+}
+
+func (m Model) layout() layout {
+	bodyHeight := m.height - 2 // header + footer
+	if bodyHeight < 3 {
+		bodyHeight = 3
+	}
+	innerH := bodyHeight - 2 // pane top+bottom border
+
+	changesWidth := m.width - pluginPaneWidth - versionPaneWidth - 6 // three borders
+	if changesWidth < 10 {
+		changesWidth = 10
+	}
+
+	return layout{
+		bodyHeight:      bodyHeight,
+		innerH:          innerH,
+		listRows:        max(1, innerH-1), // one line for the title
+		changesViewport: max(1, innerH-2), // header line + blank
+		changesWidth:    changesWidth,
+	}
+}
+
 func (m Model) render() string {
 	if m.width == 0 || m.height == 0 {
 		return "loading…"
@@ -37,64 +67,82 @@ func (m Model) render() string {
 			titleStyle.Render("dry-dock")+"\n\nAll plugins are up to date. 🚢")
 	}
 
+	l := m.layout()
 	header := m.renderHeader()
 	footer := helpStyle.Render(m.helpText())
 
-	bodyHeight := m.height - lipgloss.Height(header) - lipgloss.Height(footer)
-	if bodyHeight < 3 {
-		bodyHeight = 3
-	}
-
-	changesWidth := m.width - pluginPaneWidth - versionPaneWidth - 6 // borders
-	if changesWidth < 10 {
-		changesWidth = 10
-	}
-
-	plugins := m.pane(m.renderPlugins(), pluginPaneWidth, bodyHeight, m.focus == focusPlugins)
-	versions := m.pane(m.renderVersions(), versionPaneWidth, bodyHeight, m.focus == focusVersions)
-	changes := m.pane(m.renderChanges(changesWidth), changesWidth, bodyHeight, false)
+	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, m.focus == focusPlugins)
+	versions := m.pane(m.versionContent(l), versionPaneWidth, l, m.focus == focusVersions)
+	changes := m.pane(m.changesContent(l), l.changesWidth, l, m.focus == focusChanges)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, plugins, versions, changes)
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 
-func (m Model) pane(content string, width, height int, focused bool) string {
+func (m Model) pane(content string, width int, l layout, focused bool) string {
 	style := blurredBorder
 	if focused {
 		style = focusedBorder
 	}
-	return style.Width(width).Height(height - 2).Render(content)
+	return style.Width(width).Height(l.innerH).Render(content)
 }
 
-func (m Model) renderHeader() string {
-	age := formatDuration(m.minAge)
-	return titleStyle.Render("dry-dock") +
-		dimStyle.Render(fmt.Sprintf("  ·  minimum release age: %s  ·  %d plugin(s) with updates", age, len(m.plugins)))
+// pluginContent renders the plugin pane: a sticky title above a windowed list
+// that follows the selection.
+func (m Model) pluginContent(l layout) string {
+	lines := m.pluginBodyLines()
+	offset := follow(m.pluginIdx, len(lines), l.listRows)
+	body := window(lines, offset, l.listRows)
+	return titleStyle.Render(scrollTitle("Plugins", offset, len(lines), l.listRows)) + "\n" +
+		strings.Join(body, "\n")
 }
 
-func (m Model) renderPlugins() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Plugins") + "\n")
+func (m Model) versionContent(l layout) string {
+	lines := m.versionBodyLines()
+	if len(lines) == 0 {
+		return titleStyle.Render("Versions") + "\n" + dimStyle.Render("(none old enough)")
+	}
+	// Each version occupies two lines; keep the selected pair in view.
+	offset := follow(m.versionIdx*2, len(lines), l.listRows)
+	body := window(lines, offset, l.listRows)
+	return titleStyle.Render(scrollTitle("Versions", offset, len(lines), l.listRows)) + "\n" +
+		strings.Join(body, "\n")
+}
+
+func (m Model) changesContent(l layout) string {
+	p := m.SelectedPlugin()
+	sel, ok := m.SelectedVersion()
+	if !ok {
+		return titleStyle.Render("Changes") + "\n\n" +
+			dimStyle.Render("Press → to pick a version for "+p.Name)
+	}
+
+	header := titleStyle.Render(fmt.Sprintf("Changes: %s → %s", shortSHA(p.Current.SHA), shortSHA(sel.SHA))) +
+		dimStyle.Render(fmt.Sprintf("  (%d commits)", len(m.SelectedChanges())))
+
+	lines := m.changesBodyLines(l.changesWidth)
+	offset := clamp(m.changesScroll, 0, m.maxChangesScroll())
+	body := window(lines, offset, l.changesViewport)
+	return header + "\n\n" + strings.Join(body, "\n")
+}
+
+// --- body line builders (title-free, one slice element per rendered row) ---
+
+func (m Model) pluginBodyLines() []string {
+	lines := make([]string, len(m.plugins))
 	for i, p := range m.plugins {
 		line := truncate(p.Name, pluginPaneWidth-2)
 		if i == m.pluginIdx {
 			line = selectedStyle.Render(padRight(line, pluginPaneWidth-2))
 		}
-		b.WriteString(line + "\n")
+		lines[i] = line
 	}
-	return b.String()
+	return lines
 }
 
-func (m Model) renderVersions() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Versions") + "\n")
-
+func (m Model) versionBodyLines() []string {
 	visible := m.VisibleVersions()
-	if len(visible) == 0 {
-		b.WriteString(dimStyle.Render("(none old enough)"))
-		return b.String()
-	}
-
+	lines := make([]string, 0, len(visible)*2)
 	for i, v := range visible {
 		label := fmt.Sprintf("%s  %s", shortSHA(v.SHA), relativeDate(v.Date, m.now))
 		subject := truncate(v.Subject, versionPaneWidth-2)
@@ -105,41 +153,70 @@ func (m Model) renderVersions() string {
 			label = shaStyle.Render(label)
 			subject = "  " + dimStyle.Render(subject)
 		}
-		b.WriteString(label + "\n" + subject + "\n")
+		lines = append(lines, label, subject)
 	}
-	return b.String()
+	return lines
 }
 
-func (m Model) renderChanges(width int) string {
-	var b strings.Builder
-	p := m.SelectedPlugin()
-
-	sel, ok := m.SelectedVersion()
-	if !ok {
-		b.WriteString(titleStyle.Render("Changes") + "\n\n")
-		b.WriteString(dimStyle.Render("Press → to pick a version for " + p.Name))
-		return b.String()
-	}
-
-	b.WriteString(titleStyle.Render(fmt.Sprintf("Changes: %s → %s", shortSHA(p.Current.SHA), shortSHA(sel.SHA))))
-	b.WriteString(dimStyle.Render(fmt.Sprintf("  (%d commits)", len(m.SelectedChanges()))) + "\n\n")
-
+func (m Model) changesBodyLines(width int) []string {
+	var lines []string
 	for _, c := range m.SelectedChanges() {
-		meta := shaStyle.Render(fmt.Sprintf("%s  %s", shortSHA(c.SHA), c.Date.Format("2006-01-02")))
-		b.WriteString(meta + "\n")
+		lines = append(lines, shaStyle.Render(fmt.Sprintf("%s  %s", shortSHA(c.SHA), c.Date.Format("2006-01-02"))))
 		for _, line := range wrap(c.Subject, width-2) {
-			b.WriteString("  " + line + "\n")
+			lines = append(lines, "  "+line)
 		}
-		b.WriteString("\n")
+		lines = append(lines, "")
 	}
-	return b.String()
+	return lines
+}
+
+func (m Model) renderHeader() string {
+	age := formatDuration(m.minAge)
+	return titleStyle.Render("dry-dock") +
+		dimStyle.Render(fmt.Sprintf("  ·  minimum release age: %s  ·  %d plugin(s) with updates", age, len(m.plugins)))
 }
 
 func (m Model) helpText() string {
-	if m.focus == focusVersions {
-		return "↑/↓ version  ·  ← plugins  ·  q quit"
+	switch m.focus {
+	case focusChanges:
+		return "↑/↓ scroll changes  ·  ← versions  ·  q quit"
+	case focusVersions:
+		return "↑/↓ version  ·  → changes  ·  ← plugins  ·  q quit"
+	default:
+		return "↑/↓ plugin  ·  → versions  ·  q quit"
 	}
-	return "↑/↓ plugin  ·  → versions  ·  q quit"
+}
+
+// --- windowing helpers ---
+
+// window returns exactly height lines starting at offset, padding with blanks
+// when the source runs short so panes stay a fixed height.
+func window(lines []string, offset, height int) []string {
+	out := make([]string, height)
+	for i := range height {
+		src := offset + i
+		if src >= 0 && src < len(lines) {
+			out[i] = lines[src]
+		}
+	}
+	return out
+}
+
+// follow returns a scroll offset that keeps sel visible within a height-line
+// window, biased to center it, clamped to the content bounds.
+func follow(sel, total, height int) int {
+	if total <= height {
+		return 0
+	}
+	return clamp(sel-height/2, 0, total-height)
+}
+
+// scrollTitle appends a position hint to a pane title when its list overflows.
+func scrollTitle(name string, offset, total, height int) string {
+	if total <= height {
+		return name
+	}
+	return fmt.Sprintf("%s  ↕ %d–%d/%d", name, offset+1, min(offset+height, total), total)
 }
 
 func shortSHA(sha string) string {
