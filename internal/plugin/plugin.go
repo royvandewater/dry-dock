@@ -30,20 +30,20 @@ type Version struct {
 
 // SelectInRange partitions release tags against a lazy.vim version constraint,
 // relative to the version the plugin is currently on. It returns the tags that
-// satisfy the constraint and are strictly newer than current (newest-first by
-// semver), and the count of newer tags that fall outside the constraint — the
-// releases dry-dock hides but still wants to hint at. Tags that are not valid
-// semver are ignored.
+// satisfy the constraint and are strictly newer than current, and the newer
+// tags that fall outside the constraint — the releases dry-dock hides but still
+// wants to surface for inspection. Both slices are newest-first by semver and
+// carry one entry per commit. Tags that are not valid semver are ignored.
 //
 // The current version is taken from the highest semver tag at currentSHA;
 // commits carry several tags (e.g. "v1.17", "v1.17.0"), so matching by SHA and
 // picking the semver-valid one avoids tripping over a non-semver sibling. When
 // the pinned commit is untagged, currentTagHint (e.g. the nearest ancestor tag
 // from `git describe`) stands in.
-func SelectInRange(tags []Version, constraint, currentSHA, currentTagHint string) ([]Version, int, error) {
+func SelectInRange(tags []Version, constraint, currentSHA, currentTagHint string) ([]Version, []Version, error) {
 	c, err := semver.NewConstraint(constraint)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
 
 	current := highestSemverAt(tags, currentSHA)
@@ -53,12 +53,7 @@ func SelectInRange(tags []Version, constraint, currentSHA, currentTagHint string
 		}
 	}
 
-	type tagged struct {
-		version Version
-		semver  *semver.Version
-	}
-	var newer []tagged
-	outsideSHAs := map[string]bool{}
+	var inside, outside []tagged
 	for _, v := range tags {
 		if v.SHA == currentSHA {
 			continue
@@ -71,31 +66,41 @@ func SelectInRange(tags []Version, constraint, currentSHA, currentTagHint string
 			continue
 		}
 		if c.Check(sv) {
-			newer = append(newer, tagged{v, sv})
+			inside = append(inside, tagged{v, sv})
 		} else {
-			outsideSHAs[v.SHA] = true
+			outside = append(outside, tagged{v, sv})
 		}
 	}
+	return dedupeBySHA(inside), dedupeBySHA(outside), nil
+}
 
-	// A commit often carries several equivalent tags (e.g. "v1.18" and
-	// "v1.18.0"); sort newest-first, most-specific tag first, then keep one
-	// entry per commit so a single release shows up once.
-	sort.Slice(newer, func(i, j int) bool {
-		if !newer[i].semver.Equal(newer[j].semver) {
-			return newer[i].semver.GreaterThan(newer[j].semver)
+// tagged pairs a release version with its parsed semver so the partition logic
+// can sort by version without re-parsing.
+type tagged struct {
+	version Version
+	semver  *semver.Version
+}
+
+// dedupeBySHA sorts tagged releases newest-first (most-specific tag first when
+// two share a version) and keeps one entry per commit, so a commit carrying
+// several equivalent tags (e.g. "v1.18" and "v1.18.0") shows up once.
+func dedupeBySHA(versions []tagged) []Version {
+	sort.Slice(versions, func(i, j int) bool {
+		if !versions[i].semver.Equal(versions[j].semver) {
+			return versions[i].semver.GreaterThan(versions[j].semver)
 		}
-		return len(newer[i].version.Tag) > len(newer[j].version.Tag)
+		return len(versions[i].version.Tag) > len(versions[j].version.Tag)
 	})
 	seen := map[string]bool{}
-	var inRange []Version
-	for _, t := range newer {
+	var out []Version
+	for _, t := range versions {
 		if seen[t.version.SHA] {
 			continue
 		}
 		seen[t.version.SHA] = true
-		inRange = append(inRange, t.version)
+		out = append(out, t.version)
 	}
-	return inRange, len(outsideSHAs), nil
+	return out
 }
 
 // CurrentTag returns the release tag the pinned commit sits on: the highest
@@ -145,10 +150,10 @@ type Plugin struct {
 	Candidates []Version
 
 	// Constraint is the lazy.vim version matcher (e.g. "1.*") when the plugin
-	// pins a release range, empty otherwise. OutOfScope counts the newer
-	// releases hidden because they fall outside that constraint.
+	// pins a release range, empty otherwise. OutOfScope holds the newer releases
+	// hidden because they fall outside that constraint, newest-first.
 	Constraint string
-	OutOfScope int
+	OutOfScope []Version
 }
 
 // ChangesUpTo returns every change from the current version through the
@@ -157,6 +162,45 @@ type Plugin struct {
 // candidates[i:], preserving the most-recent-first ordering.
 func (p Plugin) ChangesUpTo(i int) []Version {
 	return p.Candidates[i:]
+}
+
+// ChangesTo returns the cumulative changes pulled in by moving to v: every
+// newer release from Current through v, newest-first. An installable or too-new
+// version lives in Candidates, so it resolves to Candidates[i:] like ChangesUpTo.
+// An out-of-scope version (constrained plugins only) is not in Candidates, so
+// the in-range candidates and out-of-scope releases are merged in version order
+// and sliced from v onward — the changelog then spans the constraint boundary.
+func (p Plugin) ChangesTo(v Version) []Version {
+	for i, c := range p.Candidates {
+		if c.SHA == v.SHA {
+			return p.ChangesUpTo(i)
+		}
+	}
+
+	merged := mergeByVersion(p.Candidates, p.OutOfScope)
+	for i, c := range merged {
+		if c.SHA == v.SHA {
+			return merged[i:]
+		}
+	}
+	return nil
+}
+
+// mergeByVersion combines release slices into one newest-first-by-semver list,
+// keeping one entry per commit. Versions with unparseable tags sort last so a
+// stray non-semver tag never crowds out a real release.
+func mergeByVersion(groups ...[]Version) []Version {
+	var all []tagged
+	for _, g := range groups {
+		for _, v := range g {
+			sv, err := semver.NewVersion(v.Tag)
+			if err != nil {
+				sv = &semver.Version{}
+			}
+			all = append(all, tagged{v, sv})
+		}
+	}
+	return dedupeBySHA(all)
 }
 
 // IncludesBreaking reports whether updating to the candidate identified by sha
@@ -192,16 +236,22 @@ func (p Plugin) Installable(now time.Time, minAge time.Duration) []Version {
 	return installable
 }
 
-// TooNew counts the candidate versions younger than the minimum release age —
-// the ones filtered out of Installable for being too fresh to trust yet.
-func (p Plugin) TooNew(now time.Time, minAge time.Duration) int {
+// TooNewVersions returns the candidate versions younger than the minimum release
+// age — the ones filtered out of Installable for being too fresh to trust yet —
+// preserving the most-recent-first ordering.
+func (p Plugin) TooNewVersions(now time.Time, minAge time.Duration) []Version {
 	cutoff := now.Add(-minAge)
 
-	count := 0
+	tooNew := make([]Version, 0, len(p.Candidates))
 	for _, v := range p.Candidates {
 		if v.Date.After(cutoff) {
-			count++
+			tooNew = append(tooNew, v)
 		}
 	}
-	return count
+	return tooNew
+}
+
+// TooNew counts the candidate versions younger than the minimum release age.
+func (p Plugin) TooNew(now time.Time, minAge time.Duration) int {
+	return len(p.TooNewVersions(now, minAge))
 }

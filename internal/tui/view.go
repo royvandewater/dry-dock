@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/royvandewater/dry-dock/internal/plugin"
 )
 
 const (
@@ -100,7 +101,6 @@ func (m Model) pluginContent(l layout) string {
 
 func (m Model) versionContent(l layout) string {
 	p := m.SelectedPlugin()
-	lines := m.versionBodyLines()
 
 	// Show which version the plugin is currently pinned to. The installable
 	// list only holds versions newer than this, so without the marker there's
@@ -112,48 +112,22 @@ func (m Model) versionContent(l layout) string {
 	}
 	installed := dimStyle.Render("installed " + installedID)
 
-	// When the plugin pins a version range, note the newer releases hidden
-	// because they fall outside it. The note costs one row of the list window.
-	note := ""
-	if p.Constraint != "" && p.OutOfScope > 0 {
-		unit := "release"
-		if p.OutOfScope > 1 {
-			unit = "releases"
-		}
-		note = warningStyle.Render(fmt.Sprintf("⚠ %d newer %s outside %s", p.OutOfScope, unit, p.Constraint))
-	}
 	rows := max(1, l.listRows-1) // installed line
-	if note != "" {
-		rows = max(1, rows-1)
-	}
-
+	lines, starts := m.versionBodyLines()
 	if len(lines) == 0 {
-		empty := "(none old enough)"
-		if p.Constraint != "" {
-			empty = "(no newer release within " + p.Constraint + ")"
-		}
-		if n := p.TooNew(m.now, m.minAge); n > 0 {
-			unit := "release"
-			if n > 1 {
-				unit = "releases"
-			}
-			empty = fmt.Sprintf("(%d %s too new to install)", n, unit)
-		}
-		body := dimStyle.Render(empty)
-		if note != "" {
-			body = note + "\n" + body
-		}
-		return titleStyle.Render("Versions") + "\n" + installed + "\n" + body
+		return titleStyle.Render("Versions") + "\n" + installed + "\n" + dimStyle.Render("(up to date)")
 	}
 
-	// Each version occupies two lines; keep the selected pair in view.
-	offset := follow(m.versionIdx*2, len(lines), rows)
-	body := window(lines, offset, rows)
-	out := titleStyle.Render(scrollTitle("Versions", offset, len(lines), rows)) + "\n" + installed + "\n"
-	if note != "" {
-		out += note + "\n"
+	// Keep the selected entry's first line in view; a header occupies one line,
+	// a version two, so the offset comes from the entry→line map.
+	selStart := 0
+	if m.versionIdx >= 0 && m.versionIdx < len(starts) {
+		selStart = starts[m.versionIdx]
 	}
-	return out + strings.Join(body, "\n")
+	offset := follow(selStart, len(lines), rows)
+	body := window(lines, offset, rows)
+	return titleStyle.Render(scrollTitle("Versions", offset, len(lines), rows)) + "\n" + installed + "\n" +
+		strings.Join(body, "\n")
 }
 
 func (m Model) changesContent(l layout) string {
@@ -190,35 +164,86 @@ func (m Model) pluginBodyLines() []string {
 	return lines
 }
 
-func (m Model) versionBodyLines() []string {
+// versionBodyLines renders the versions pane's entries into display lines,
+// returning the lines and a map from entry index to its first line so the pane
+// can scroll the selection into view. Headers render as one line, versions as
+// two (id/date, then subject).
+func (m Model) versionBodyLines() ([]string, []int) {
 	p := m.SelectedPlugin()
-	visible := m.VisibleVersions()
-	lines := make([]string, 0, len(visible)*2)
-	for i, v := range visible {
-		id := shortSHA(v.SHA)
-		if v.Tag != "" {
-			id = v.Tag
+	entries := m.versionEntries()
+	var lines []string
+	starts := make([]int, len(entries))
+	for i, e := range entries {
+		starts[i] = len(lines)
+		selected := m.focus == focusVersions && i == m.versionIdx
+		switch e.kind {
+		case entryOutOfScopeHeader:
+			text := fmt.Sprintf("%d newer %s outside %s", e.count, plural(e.count, "release", "releases"), p.Constraint)
+			lines = append(lines, headerLine(text, m.expandOutOfScope, selected, warningStyle))
+		case entryTooNewHeader:
+			text := fmt.Sprintf("%d %s too new to install", e.count, plural(e.count, "release", "releases"))
+			lines = append(lines, headerLine(text, m.expandTooNew, selected, dimStyle))
+		default:
+			label, subject := m.versionRow(p, e.version, selected, e.kind != entryInstallable)
+			lines = append(lines, label, subject)
 		}
-		text := fmt.Sprintf("%s  %s", id, relativeDate(v.Date, m.now))
-		breaking := p.IncludesBreaking(v.SHA)
-		subject := truncate(v.Subject, versionPaneWidth-2)
-		var label string
-		if m.focus == focusVersions && i == m.versionIdx {
-			if breaking {
-				text += "  ⚠"
-			}
-			label = selectedStyle.Render(padRight(text, versionPaneWidth-2))
-			subject = selectedStyle.Render(padRight("  "+subject, versionPaneWidth-2))
-		} else {
-			label = shaStyle.Render(text)
-			if breaking {
-				label += "  " + warningStyle.Render("⚠")
-			}
-			subject = "  " + dimStyle.Render(subject)
-		}
-		lines = append(lines, label, subject)
 	}
-	return lines
+	return lines, starts
+}
+
+// headerLine renders a collapsible warning header: a ▶/▼ marker plus its text,
+// highlighted when selected and drawn in style otherwise.
+func headerLine(text string, expanded, selected bool, style lipgloss.Style) string {
+	marker := "▶"
+	if expanded {
+		marker = "▼"
+	}
+	full := truncate(marker+" "+text, versionPaneWidth-2)
+	if selected {
+		return selectedStyle.Render(padRight(full, versionPaneWidth-2))
+	}
+	return style.Render(full)
+}
+
+// versionRow renders a version's two lines (id/date, then subject). Revealed
+// releases (out-of-scope, too-new) are indented and muted to sit under their
+// header; the selected row is highlighted.
+func (m Model) versionRow(p plugin.Plugin, v plugin.Version, selected, revealed bool) (string, string) {
+	id := shortSHA(v.SHA)
+	if v.Tag != "" {
+		id = v.Tag
+	}
+	prefix := ""
+	if revealed {
+		prefix = "  "
+	}
+	text := fmt.Sprintf("%s%s  %s", prefix, id, relativeDate(v.Date, m.now))
+	breaking := p.IncludesBreaking(v.SHA)
+	subject := truncate(v.Subject, versionPaneWidth-2)
+	if selected {
+		if breaking {
+			text += "  ⚠"
+		}
+		label := selectedStyle.Render(padRight(truncate(text, versionPaneWidth-2), versionPaneWidth-2))
+		return label, selectedStyle.Render(padRight("  "+subject, versionPaneWidth-2))
+	}
+	style := shaStyle
+	if revealed {
+		style = dimStyle
+	}
+	label := style.Render(truncate(text, versionPaneWidth-2))
+	if breaking {
+		label += "  " + warningStyle.Render("⚠")
+	}
+	return label, "  " + dimStyle.Render(subject)
+}
+
+// plural picks the singular or plural noun for n.
+func plural(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
 }
 
 func (m Model) changesBodyLines(width int) []string {
@@ -270,7 +295,20 @@ func (m Model) helpText() string {
 	case focusChanges:
 		return "↑/↓ scroll changes  ·  enter update  ·  ← versions  ·  q quit"
 	case focusVersions:
-		return "↑/↓ version  ·  enter update  ·  → changes  ·  ← plugins  ·  q quit"
+		action := "enter update"
+		if e, ok := m.selectedEntry(); ok {
+			switch {
+			case e.isHeader():
+				action = "enter expand"
+			case e.kind != entryInstallable:
+				action = "" // view-only release; nothing to apply
+			}
+		}
+		hint := "↑/↓ version"
+		if action != "" {
+			hint += "  ·  " + action
+		}
+		return hint + "  ·  → changes  ·  ← plugins  ·  q quit"
 	default:
 		return "↑/↓ plugin  ·  → versions  ·  q quit"
 	}

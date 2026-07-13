@@ -7,6 +7,26 @@ Feature: Plugin changes and installability
     When I request the changes up to index 1
     Then the resulting shas are "v2, v1"
 
+  Scenario: Changes to an in-range version come straight from the candidates
+    Given a versioned plugin:
+      | tag     | sha  | scope |
+      | v1.11.0 | c110 | in    |
+      | v1.10.0 | c100 | in    |
+      | v2.1.0  | c210 | out   |
+      | v2.0.0  | c200 | out   |
+    When I request the changes to "c110"
+    Then the resulting shas are "c110, c100"
+
+  Scenario: Changes to an out-of-range version merge across the constraint boundary
+    Given a versioned plugin:
+      | tag     | sha  | scope |
+      | v1.11.0 | c110 | in    |
+      | v1.10.0 | c100 | in    |
+      | v2.1.0  | c210 | out   |
+      | v2.0.0  | c200 | out   |
+    When I request the changes to "c210"
+    Then the resulting shas are "c210, c200, c110, c100"
+
   Scenario: A Conventional Commits bang marks a breaking change
     Given a commit with subject "feat(keymap)!: replace expr keymaps"
     Then the commit is breaking
@@ -61,6 +81,14 @@ Feature: Plugin changes and installability
     Then the resulting shas are "v2.0.0, v1.11.0"
     And there are 0 newer releases outside the range
 
+  Scenario: Out-of-range tags are surfaced newest-first for inspection
+    Given tags "v2.1.0, v2.0.0, v1.11.0, v1.10.2"
+    And the current tag is "v1.10.2"
+    And the version constraint is "1.*"
+    When I select the in-range versions
+    Then the resulting shas are "v1.11.0"
+    And the out-of-range shas are "v2.1.0, v2.0.0"
+
   Scenario: Installable versions exclude those younger than the minimum age
     Given the current time is "2026-07-13"
     And a minimum release age of 14 days
@@ -81,3 +109,14 @@ Feature: Plugin changes and installability
       | ccc | ripe    | 30       |
     When I count the versions too new to install
     Then 2 versions are too new
+
+  Scenario: Too-new versions are surfaced newest-first for inspection
+    Given the current time is "2026-07-13"
+    And a minimum release age of 14 days
+    And a plugin with candidates:
+      | sha | subject | age_days |
+      | aaa | fresh   | 1        |
+      | bbb | recent  | 5        |
+      | ccc | ripe    | 30       |
+    When I list the versions too new to install
+    Then the resulting shas are "aaa, bbb"
