@@ -74,6 +74,13 @@ commit it was on before and reports the failure — so a breaking update can't
 leave your editor unusable. On success, the version drops out of the list and
 the changelog reflects the plugin's new position.
 
+Only after that success does dry-dock **commit and push** the `lazy-lock.json`
+change in the config repo that holds it (e.g. `~/.config/nvim`), with a message
+naming the plugin and the version it moved to (`Update telescope.nvim to
+abc1234`). A broken-and-rolled-back update is never committed. The commit and
+push are best-effort: a config directory that isn't a git repo, or one with no
+remote to push to, won't turn a good update into a reported failure.
+
 ## Usage
 
 ```bash

@@ -3,8 +3,10 @@ package dock
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
+	"github.com/royvandewater/dry-dock/internal/git"
 	"github.com/royvandewater/dry-dock/internal/lazy"
 )
 
@@ -24,6 +26,11 @@ type Updater struct {
 	// HealthCheck returns a non-nil error when nvim fails to load the plugin
 	// after a restore. Defaults to loading it in a headless nvim when nil.
 	HealthCheck func(pluginName string) error
+
+	// Commit records the lock-file change in the config repo and pushes it,
+	// using message as the commit subject. Defaults to committing and pushing
+	// via the git CLI when nil. It runs only after a successful update.
+	Commit func(message string) error
 }
 
 // Apply repins pluginName to sha and has lazy.vim restore it. If that leaves
@@ -42,6 +49,11 @@ func (u Updater) Apply(pluginName, sha string) error {
 		return fmt.Errorf("%s update to %s broke nvim, rolled back to %s\n%w",
 			pluginName, shortSHA(sha), shortSHA(previous), err)
 	}
+
+	// The update stuck. Record it in the config repo so the lock-file change is
+	// tracked and shared. Best-effort: a repo without a remote (or nothing to
+	// push) shouldn't turn a good update into a reported failure.
+	_ = u.commit()(fmt.Sprintf("Update %s to %s", pluginName, shortSHA(sha)))
 	return nil
 }
 
@@ -69,6 +81,23 @@ func (u Updater) healthCheck() func(string) error {
 		return u.HealthCheck
 	}
 	return healthViaNvim
+}
+
+func (u Updater) commit() func(string) error {
+	if u.Commit != nil {
+		return u.Commit
+	}
+	return u.commitAndPush
+}
+
+// commitAndPush records the lock-file change in the repo that holds it and
+// pushes the branch to its upstream.
+func (u Updater) commitAndPush(message string) error {
+	dir := filepath.Dir(u.Config.LockPath)
+	if err := git.CommitFile(dir, filepath.Base(u.Config.LockPath), message); err != nil {
+		return err
+	}
+	return git.Push(dir)
 }
 
 // restoreViaNvim drives `:Lazy restore <plugin>` in a headless nvim, which reads
