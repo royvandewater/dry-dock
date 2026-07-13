@@ -39,7 +39,8 @@ Three panes, driven entirely by the arrow keys:
 - **←** — return focus to the plugin list.
 - **enter** — apply the highlighted version: repin it in `lazy-lock.json` and
   let lazy.vim check it out.
-- **q** / **esc** — quit.
+- **esc** — dismiss the update status message (restoring the key hints).
+- **q** / **ctrl-c** — quit.
 
 Highlighting a plugin lists the versions it can update to, newest first, all
 newer than the installed version and all old enough to satisfy the minimum

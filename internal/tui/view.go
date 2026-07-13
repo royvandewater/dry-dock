@@ -199,7 +199,9 @@ func (m Model) renderFooter() string {
 		if m.statusErr {
 			style = warningStyle
 		}
-		return style.Render(truncate(m.status, m.width))
+		hint := "  ·  esc dismiss"
+		text := truncate(m.status, m.width-lipgloss.Width(hint))
+		return style.Render(text) + helpStyle.Render(hint)
 	}
 	return helpStyle.Render(m.helpText())
 }

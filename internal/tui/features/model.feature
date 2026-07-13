@@ -80,6 +80,16 @@ Feature: Navigating plugins, versions, and changes
     And I process pending commands
     Then the status contains "boom"
 
+  Scenario: Esc dismisses the status without quitting
+    Given the sample model with a failing updater
+    When I press "right"
+    And I press "enter"
+    And I process pending commands
+    Then the status contains "boom"
+    When I press "esc"
+    Then the status is empty
+    And the selected plugin is "telescope.nvim"
+
   Scenario: Changing plugin resets version selection
     Given the sample model
     When I press "right"

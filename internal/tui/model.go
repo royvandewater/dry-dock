@@ -138,8 +138,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc || msg.String() == "q" {
+	if msg.Type == tea.KeyCtrlC || msg.String() == "q" {
 		return m, tea.Quit
+	}
+	if msg.Type == tea.KeyEsc {
+		// Esc dismisses the status message (restoring the key hints); it does
+		// not quit — that's q.
+		m.status = ""
+		m.statusErr = false
+		return m, nil
 	}
 	if len(m.plugins) == 0 {
 		return m, nil

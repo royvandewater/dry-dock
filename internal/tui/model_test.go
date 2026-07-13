@@ -76,6 +76,7 @@ var keys = map[string]tea.KeyType{
 	"left":  tea.KeyLeft,
 	"right": tea.KeyRight,
 	"enter": tea.KeyEnter,
+	"esc":   tea.KeyEsc,
 }
 
 // recordingUpdater is a test double for the Applier the model calls to perform
@@ -157,6 +158,13 @@ func (w *tuiWorld) theStatusContains(substr string) error {
 	return nil
 }
 
+func (w *tuiWorld) theStatusIsEmpty() error {
+	if w.model.status != "" {
+		return fmt.Errorf("expected empty status, got %q", w.model.status)
+	}
+	return nil
+}
+
 func (w *tuiWorld) aWindowSizeOf(width, height int) error {
 	w.send(tea.WindowSizeMsg{Width: width, Height: height})
 	return nil
@@ -180,6 +188,13 @@ func (w *tuiWorld) iPressTimes(name string, n int) error {
 func (w *tuiWorld) theSelectedPluginIs(name string) error {
 	if got := w.model.SelectedPlugin().Name; got != name {
 		return fmt.Errorf("expected selected plugin %q, got %q", name, got)
+	}
+	return nil
+}
+
+func (w *tuiWorld) thereAreNPlugins(n int) error {
+	if got := len(w.model.plugins); got != n {
+		return fmt.Errorf("expected %d plugins, got %d", n, got)
 	}
 	return nil
 }
@@ -284,11 +299,14 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I process pending commands$`, w.iProcessPendingCommands)
 	sc.Step(`^the updater applied "([^"]*)" at "([^"]*)"$`, w.theUpdaterApplied)
 	sc.Step(`^the status contains "([^"]*)"$`, w.theStatusContains)
+	sc.Step(`^the status is empty$`, w.theStatusIsEmpty)
 	sc.Step(`^the long-changelog model$`, w.theLongChangelogModel)
 	sc.Step(`^a window size of (\d+) by (\d+)$`, w.aWindowSizeOf)
 	sc.Step(`^I press "([^"]*)" (\d+) times$`, w.iPressTimes)
 	sc.Step(`^I press "([^"]*)"$`, w.iPress)
 	sc.Step(`^the selected plugin is "([^"]*)"$`, w.theSelectedPluginIs)
+	sc.Step(`^there is (\d+) plugin$`, w.thereAreNPlugins)
+	sc.Step(`^there are (\d+) plugins$`, w.thereAreNPlugins)
 	sc.Step(`^there are (\d+) visible versions$`, w.thereAreVisibleVersions)
 	sc.Step(`^the visible version shas are "([^"]*)"$`, w.theVisibleVersionShasAre)
 	sc.Step(`^a version is selected$`, w.aVersionIsSelected)
