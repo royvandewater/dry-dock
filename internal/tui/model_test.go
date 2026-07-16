@@ -3,12 +3,16 @@ package tui
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
+	"github.com/muesli/termenv"
 	"github.com/royvandewater/dry-dock/internal/plugin"
 )
 
@@ -414,6 +418,104 @@ func (w *tuiWorld) theChangesScrollIsAtTheMaximum() error {
 	return nil
 }
 
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// Border-highlight assertions read ANSI colors out of the rendered view, so
+// force a color profile — under `go test` there is no TTY and lipgloss would
+// otherwise strip all color.
+func init() {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+}
+
+var fgColorRE = regexp.MustCompile(`^\x1b\[38;5;(\d+)m$`)
+
+// fgColorAt returns the ANSI-256 foreground color active at visible column col
+// of line, or "" if the column is unstyled or out of range.
+func fgColorAt(line string, col int) string {
+	color := ""
+	visible := 0
+	rest := line
+	for rest != "" {
+		if loc := ansiRE.FindStringIndex(rest); loc != nil && loc[0] == 0 {
+			seq := rest[:loc[1]]
+			if m := fgColorRE.FindStringSubmatch(seq); m != nil {
+				color = m[1]
+			} else {
+				color = ""
+			}
+			rest = rest[loc[1]:]
+			continue
+		}
+		if visible == col {
+			return color
+		}
+		visible++
+		_, size := utf8.DecodeRuneInString(rest)
+		rest = rest[size:]
+	}
+	return ""
+}
+
+// theFocusedPaneBorderIsHighlightedOnAllFourSides checks the focused pane's
+// top, bottom, left, and right border cells all carry the focus color — the
+// shared seam columns included.
+func (w *tuiWorld) theFocusedPaneBorderIsHighlightedOnAllFourSides() error {
+	bounds := map[focus][2]int{
+		focusPlugins:  {0, pluginPaneWidth + 1},
+		focusVersions: {pluginPaneWidth + 1, pluginPaneWidth + versionPaneWidth + 2},
+		focusChanges:  {pluginPaneWidth + versionPaneWidth + 2, w.model.width - 1},
+	}
+	left, right := bounds[w.model.focus][0], bounds[w.model.focus][1]
+
+	lines := strings.Split(w.model.render(), "\n")
+	top, bottom := 1, len(lines)-2 // body rows sit between header and footer
+	midRow, midCol := (top+bottom)/2, (left+right)/2
+
+	const focusColor = "212"
+	checks := []struct {
+		side string
+		row  int
+		col  int
+	}{
+		{"top", top, midCol},
+		{"bottom", bottom, midCol},
+		{"left", midRow, left},
+		{"right", midRow, right},
+	}
+	for _, c := range checks {
+		if got := fgColorAt(lines[c.row], c.col); got != focusColor {
+			return fmt.Errorf("%s border at row %d col %d has color %q, want %q",
+				c.side, c.row, c.col, got, focusColor)
+		}
+	}
+	return nil
+}
+
+// theRenderedViewHasNoDoubledPaneBorders fails when two pane borders sit in
+// adjacent columns anywhere in the rendered view.
+func (w *tuiWorld) theRenderedViewHasNoDoubledPaneBorders() error {
+	for _, line := range strings.Split(ansiRE.ReplaceAllString(w.model.render(), ""), "\n") {
+		for _, seam := range []string{"││", "╮╭", "╯╰"} {
+			if strings.Contains(line, seam) {
+				return fmt.Errorf("found doubled pane border %q in line %q", seam, line)
+			}
+		}
+	}
+	return nil
+}
+
+// everyBodyLineSpansTheFullWindowWidth guards the pane width math: the pane
+// row must fill the window exactly, with no columns lost or overflowing.
+func (w *tuiWorld) everyBodyLineSpansTheFullWindowWidth() error {
+	lines := strings.Split(w.model.render(), "\n")
+	for i, line := range lines[1 : len(lines)-1] {
+		if got := lipgloss.Width(line); got != w.model.width {
+			return fmt.Errorf("body line %d is %d columns wide, want %d", i, got, w.model.width)
+		}
+	}
+	return nil
+}
+
 func (w *tuiWorld) theMaxChangesScrollIsPositive() error {
 	if max := w.model.maxChangesScroll(); max <= 0 {
 		return fmt.Errorf("expected a positive max changes scroll, got %d", max)
@@ -462,4 +564,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the changes scroll is greater than (\d+)$`, w.theChangesScrollIsGreaterThan)
 	sc.Step(`^the changes scroll is at the maximum$`, w.theChangesScrollIsAtTheMaximum)
 	sc.Step(`^the max changes scroll is positive$`, w.theMaxChangesScrollIsPositive)
+	sc.Step(`^the rendered view has no doubled pane borders$`, w.theRenderedViewHasNoDoubledPaneBorders)
+	sc.Step(`^every body line spans the full window width$`, w.everyBodyLineSpansTheFullWindowWidth)
+	sc.Step(`^the focused pane border is highlighted on all four sides$`, w.theFocusedPaneBorderIsHighlightedOnAllFourSides)
 }

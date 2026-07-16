@@ -15,12 +15,8 @@ const (
 )
 
 var (
-	focusedBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("212"))
-	blurredBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240"))
+	focusedBorderColor = lipgloss.Color("212")
+	blurredBorderColor = lipgloss.Color("240")
 
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("212"))
@@ -46,7 +42,7 @@ func (m Model) layout() layout {
 	}
 	innerH := bodyHeight - 2 // pane top+bottom border
 
-	changesWidth := m.width - pluginPaneWidth - versionPaneWidth - 6 // three borders
+	changesWidth := m.width - pluginPaneWidth - versionPaneWidth - 4 // two outer borders + two shared seams
 	if changesWidth < 10 {
 		changesWidth = 10
 	}
@@ -73,20 +69,43 @@ func (m Model) render() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 
-	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, m.focus == focusPlugins)
-	versions := m.pane(m.versionContent(l), versionPaneWidth, l, m.focus == focusVersions)
-	changes := m.pane(m.changesContent(l), l.changesWidth, l, m.focus == focusChanges)
+	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, focusPlugins)
+	versions := m.pane(m.versionContent(l), versionPaneWidth, l, focusVersions)
+	changes := m.pane(m.changesContent(l), l.changesWidth, l, focusChanges)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, plugins, versions, changes)
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 
-func (m Model) pane(content string, width int, l layout, focused bool) string {
-	style := blurredBorder
-	if focused {
-		style = focusedBorder
+// pane draws the bordered pane at position pos (the focus enum doubles as the
+// left-to-right pane index). Adjacent panes share a single border column, and
+// the focused pane owns both of its seams so its highlight rings all four
+// sides: a pane draws its left edge only when it is first or focused, and
+// drops its right edge when its right neighbor is focused. Interior edges use
+// ┬/┴ corners so seams tie into the top and bottom frame lines.
+func (m Model) pane(content string, width int, l layout, pos focus) string {
+	first, last := pos == focusPlugins, pos == focusChanges
+	drawLeft := first || pos == m.focus
+	drawRight := last || pos+1 != m.focus
+
+	border := lipgloss.RoundedBorder()
+	if drawLeft && !first {
+		border.TopLeft, border.BottomLeft = "┬", "┴"
 	}
-	return style.Width(width).Height(l.innerH).Render(content)
+	if drawRight && !last {
+		border.TopRight, border.BottomRight = "┬", "┴"
+	}
+	color := blurredBorderColor
+	if pos == m.focus {
+		color = focusedBorderColor
+	}
+	return lipgloss.NewStyle().
+		Border(border).
+		BorderForeground(color).
+		BorderLeft(drawLeft).
+		BorderRight(drawRight).
+		Width(width).Height(l.innerH).
+		Render(content)
 }
 
 // pluginContent renders the plugin pane: a sticky title above a windowed list
