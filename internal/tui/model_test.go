@@ -3,11 +3,13 @@ package tui
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 	"github.com/royvandewater/dry-dock/internal/plugin"
 )
@@ -414,6 +416,33 @@ func (w *tuiWorld) theChangesScrollIsAtTheMaximum() error {
 	return nil
 }
 
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// theRenderedViewHasNoDoubledPaneBorders fails when two pane borders sit in
+// adjacent columns anywhere in the rendered view.
+func (w *tuiWorld) theRenderedViewHasNoDoubledPaneBorders() error {
+	for _, line := range strings.Split(ansiRE.ReplaceAllString(w.model.render(), ""), "\n") {
+		for _, seam := range []string{"││", "╮╭", "╯╰"} {
+			if strings.Contains(line, seam) {
+				return fmt.Errorf("found doubled pane border %q in line %q", seam, line)
+			}
+		}
+	}
+	return nil
+}
+
+// everyBodyLineSpansTheFullWindowWidth guards the pane width math: the pane
+// row must fill the window exactly, with no columns lost or overflowing.
+func (w *tuiWorld) everyBodyLineSpansTheFullWindowWidth() error {
+	lines := strings.Split(w.model.render(), "\n")
+	for i, line := range lines[1 : len(lines)-1] {
+		if got := lipgloss.Width(line); got != w.model.width {
+			return fmt.Errorf("body line %d is %d columns wide, want %d", i, got, w.model.width)
+		}
+	}
+	return nil
+}
+
 func (w *tuiWorld) theMaxChangesScrollIsPositive() error {
 	if max := w.model.maxChangesScroll(); max <= 0 {
 		return fmt.Errorf("expected a positive max changes scroll, got %d", max)
@@ -462,4 +491,6 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the changes scroll is greater than (\d+)$`, w.theChangesScrollIsGreaterThan)
 	sc.Step(`^the changes scroll is at the maximum$`, w.theChangesScrollIsAtTheMaximum)
 	sc.Step(`^the max changes scroll is positive$`, w.theMaxChangesScrollIsPositive)
+	sc.Step(`^the rendered view has no doubled pane borders$`, w.theRenderedViewHasNoDoubledPaneBorders)
+	sc.Step(`^every body line spans the full window width$`, w.everyBodyLineSpansTheFullWindowWidth)
 }

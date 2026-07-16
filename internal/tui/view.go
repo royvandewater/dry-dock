@@ -15,12 +15,8 @@ const (
 )
 
 var (
-	focusedBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("212"))
-	blurredBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240"))
+	focusedBorderColor = lipgloss.Color("212")
+	blurredBorderColor = lipgloss.Color("240")
 
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("212"))
@@ -46,7 +42,7 @@ func (m Model) layout() layout {
 	}
 	innerH := bodyHeight - 2 // pane top+bottom border
 
-	changesWidth := m.width - pluginPaneWidth - versionPaneWidth - 6 // three borders
+	changesWidth := m.width - pluginPaneWidth - versionPaneWidth - 4 // two outer borders + two shared seams
 	if changesWidth < 10 {
 		changesWidth = 10
 	}
@@ -73,18 +69,38 @@ func (m Model) render() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 
-	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, m.focus == focusPlugins)
-	versions := m.pane(m.versionContent(l), versionPaneWidth, l, m.focus == focusVersions)
-	changes := m.pane(m.changesContent(l), l.changesWidth, l, m.focus == focusChanges)
+	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, m.focus == focusPlugins, paneFirst)
+	versions := m.pane(m.versionContent(l), versionPaneWidth, l, m.focus == focusVersions, paneMiddle)
+	changes := m.pane(m.changesContent(l), l.changesWidth, l, m.focus == focusChanges, paneLast)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, plugins, versions, changes)
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 
-func (m Model) pane(content string, width int, l layout, focused bool) string {
-	style := blurredBorder
+type panePos int
+
+const (
+	paneFirst panePos = iota
+	paneMiddle
+	paneLast
+)
+
+// pane draws a bordered pane. Adjacent panes share a single border column:
+// every pane after the first drops its left edge and leans on its neighbor's
+// right border, and every pane before the last swaps its right-hand corners
+// for ┬/┴ junctions so the seam ties into the top and bottom frame lines.
+func (m Model) pane(content string, width int, l layout, focused bool, pos panePos) string {
+	border := lipgloss.RoundedBorder()
+	if pos != paneLast {
+		border.TopRight, border.BottomRight = "┬", "┴"
+	}
+	color := blurredBorderColor
 	if focused {
-		style = focusedBorder
+		color = focusedBorderColor
+	}
+	style := lipgloss.NewStyle().Border(border).BorderForeground(color)
+	if pos != paneFirst {
+		style = style.BorderLeft(false)
 	}
 	return style.Width(width).Height(l.innerH).Render(content)
 }
