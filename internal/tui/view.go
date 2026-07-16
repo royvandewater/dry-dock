@@ -69,40 +69,43 @@ func (m Model) render() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 
-	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, m.focus == focusPlugins, paneFirst)
-	versions := m.pane(m.versionContent(l), versionPaneWidth, l, m.focus == focusVersions, paneMiddle)
-	changes := m.pane(m.changesContent(l), l.changesWidth, l, m.focus == focusChanges, paneLast)
+	plugins := m.pane(m.pluginContent(l), pluginPaneWidth, l, focusPlugins)
+	versions := m.pane(m.versionContent(l), versionPaneWidth, l, focusVersions)
+	changes := m.pane(m.changesContent(l), l.changesWidth, l, focusChanges)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, plugins, versions, changes)
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 
-type panePos int
+// pane draws the bordered pane at position pos (the focus enum doubles as the
+// left-to-right pane index). Adjacent panes share a single border column, and
+// the focused pane owns both of its seams so its highlight rings all four
+// sides: a pane draws its left edge only when it is first or focused, and
+// drops its right edge when its right neighbor is focused. Interior edges use
+// ┬/┴ corners so seams tie into the top and bottom frame lines.
+func (m Model) pane(content string, width int, l layout, pos focus) string {
+	first, last := pos == focusPlugins, pos == focusChanges
+	drawLeft := first || pos == m.focus
+	drawRight := last || pos+1 != m.focus
 
-const (
-	paneFirst panePos = iota
-	paneMiddle
-	paneLast
-)
-
-// pane draws a bordered pane. Adjacent panes share a single border column:
-// every pane after the first drops its left edge and leans on its neighbor's
-// right border, and every pane before the last swaps its right-hand corners
-// for ┬/┴ junctions so the seam ties into the top and bottom frame lines.
-func (m Model) pane(content string, width int, l layout, focused bool, pos panePos) string {
 	border := lipgloss.RoundedBorder()
-	if pos != paneLast {
+	if drawLeft && !first {
+		border.TopLeft, border.BottomLeft = "┬", "┴"
+	}
+	if drawRight && !last {
 		border.TopRight, border.BottomRight = "┬", "┴"
 	}
 	color := blurredBorderColor
-	if focused {
+	if pos == m.focus {
 		color = focusedBorderColor
 	}
-	style := lipgloss.NewStyle().Border(border).BorderForeground(color)
-	if pos != paneFirst {
-		style = style.BorderLeft(false)
-	}
-	return style.Width(width).Height(l.innerH).Render(content)
+	return lipgloss.NewStyle().
+		Border(border).
+		BorderForeground(color).
+		BorderLeft(drawLeft).
+		BorderRight(drawRight).
+		Width(width).Height(l.innerH).
+		Render(content)
 }
 
 // pluginContent renders the plugin pane: a sticky title above a windowed list
