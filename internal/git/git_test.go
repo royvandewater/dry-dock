@@ -48,6 +48,14 @@ func (w *gitWorld) run(args ...string) (string, error) {
 	return string(out), nil
 }
 
+func subjectList(quoted string) []string {
+	var out []string
+	for _, s := range strings.Split(quoted, ",") {
+		out = append(out, strings.Trim(strings.TrimSpace(s), `"`))
+	}
+	return out
+}
+
 func (w *gitWorld) aRepoWithCommits(branch, subjects string) error {
 	dir, err := os.MkdirTemp("", "git-feature-*")
 	if err != nil {
@@ -58,8 +66,7 @@ func (w *gitWorld) aRepoWithCommits(branch, subjects string) error {
 	if _, err := w.run("init", "-q", "-b", branch); err != nil {
 		return err
 	}
-	for i, s := range strings.Split(subjects, ",") {
-		s = strings.TrimSpace(s)
+	for i, s := range subjectList(subjects) {
 		if _, err := w.run("commit", "-q", "--allow-empty",
 			"--date", "2020-01-0"+string(rune('1'+i))+"T00:00:00", "-m", s); err != nil {
 			return err
@@ -71,6 +78,27 @@ func (w *gitWorld) aRepoWithCommits(branch, subjects string) error {
 		w.shaBySubj[s] = head[:40]
 	}
 	return nil
+}
+
+func (w *gitWorld) aMergedBranchOffWithCommits(branch, base, subjects string) error {
+	if _, err := w.run("switch", "-q", "-c", branch, w.shaBySubj[base]); err != nil {
+		return err
+	}
+	for _, s := range subjectList(subjects) {
+		if _, err := w.run("commit", "-q", "--allow-empty", "--date", "2020-01-01T00:00:00", "-m", s); err != nil {
+			return err
+		}
+		head, err := w.run("rev-parse", "HEAD")
+		if err != nil {
+			return err
+		}
+		w.shaBySubj[s] = head[:40]
+	}
+	if _, err := w.run("switch", "-q", "-"); err != nil {
+		return err
+	}
+	_, err := w.run("merge", "-q", "--no-ff", "-m", "Merge "+branch, branch)
+	return err
 }
 
 func (w *gitWorld) iLogBetween(from, ref string) error {
@@ -223,7 +251,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^a repo with commits on "([^"]*)": "([^"]*)"$`, w.aRepoWithCommits)
+	sc.Step(`^a repo with commits on "([^"]*)": (.*)$`, w.aRepoWithCommits)
+	sc.Step(`^a merged branch "([^"]*)" off "([^"]*)" with commits: (.*)$`, w.aMergedBranchOffWithCommits)
 	sc.Step(`^I log between commit "([^"]*)" and "([^"]*)"$`, w.iLogBetween)
 	sc.Step(`^I read the commit for "([^"]*)"$`, w.iReadTheCommitFor)
 	sc.Step(`^a file "([^"]*)" holding "([^"]*)"$`, w.aFileHolding)

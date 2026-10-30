@@ -15,10 +15,13 @@ import (
 // fields is the null-separated log format: SHA, commit unix time, subject.
 const fields = "%H%x00%ct%x00%s"
 
-// LogBetween returns the commits reachable from ref but not from `from`,
-// newest first — the versions a plugin can be updated to.
+// LogBetween returns the mainline commits reachable from ref but not from
+// `from`, newest first — the versions a plugin can be updated to. It follows
+// only each merge's first parent, so commits that lived on a side branch show
+// up as the merge that landed them (dated when they landed) rather than as
+// individual, possibly much older, commits.
 func LogBetween(dir, from, ref string) ([]plugin.Version, error) {
-	out, err := gitOutput(dir, "log", "--format="+fields, from+".."+ref)
+	out, err := gitOutput(dir, "log", "--first-parent", "--format="+fields, from+".."+ref)
 	if err != nil {
 		return nil, err
 	}
