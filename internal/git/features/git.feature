@@ -29,3 +29,9 @@ Feature: Reading git history as plugin versions
     When I commit "lazy-lock.json" with message "Update telescope.nvim to newsha"
     Then the latest commit subject is "Update telescope.nvim to newsha"
     And there are no uncommitted changes
+
+  Scenario: LogBetween follows only the first parent through merges
+    Given a merged branch "topic" off "second" with commits: "on topic"
+    When I log between commit "third" and "master"
+    Then there are 1 versions
+    And the version subjects are "Merge topic"
